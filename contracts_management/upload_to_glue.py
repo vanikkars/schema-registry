@@ -132,25 +132,39 @@ class SchemaRegistryClient:
         except self.glue.exceptions.EntityNotFoundException:
             return {}
 
-    def get_schema_versions(self, schema_name: str) -> list:
-        """Get all versions of a specific schema.
+    def get_schema_versions(self, schema_name: str) -> dict:
+        """Get version information for a specific schema.
+
+        AWS Glue Schema Registry tracks version via LatestSchemaVersion.
+        Returns schema with version metadata.
 
         Args:
             schema_name: Name of the schema
 
         Returns:
-            List of schema versions
+            Schema details including version information
         """
         try:
-            response = self.glue.get_schema_versions(
+            response = self.glue.get_schema(
                 SchemaId={
                     "RegistryName": self.registry_name,
                     "SchemaName": schema_name,
                 }
             )
-            return response.get("Schemas", [])
+            # Extract version info from schema details
+            return {
+                "schema_name": schema_name,
+                "latest_version": response.get("LatestSchemaVersion", 0),
+                "next_version": response.get("NextSchemaVersion", 0),
+                "checkpoint": response.get("SchemaCheckpoint", ""),
+                "status": response.get("SchemaStatus", "AVAILABLE"),
+                "created_time": response.get("CreatedTime"),
+                "updated_time": response.get("UpdatedTime"),
+                "arn": response.get("SchemaArn"),
+                "description": response.get("Description", ""),
+            }
         except Exception:
-            return []
+            return {}
 
     def create_iceberg_table(
         self,

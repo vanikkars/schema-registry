@@ -1,6 +1,6 @@
 import json
-from datetime import datetime
-from models import User
+from datetime import datetime, timezone
+from models import User, DataContract, ContractMetadata, ColumnDefinition
 from pydantic.json_schema import model_json_schema
 
 
@@ -16,8 +16,8 @@ def generate_data_contract(
     data_steward_email: str = "data-engineering@company.com",
     sla_uptime_percentage: float = 99.95,
     sla_max_latency_ms: int = 5000,
-) -> dict:
-    """Generate a data contract from a Pydantic model."""
+) -> DataContract:
+    """Generate a DataContract from a Pydantic model."""
 
     schema = model_json_schema(model)
 
@@ -49,40 +49,44 @@ def generate_data_contract(
         else:
             data_type = type_mapping.get(json_type, "string")
 
-        column = {
-            "name": field_name,
-            "data_type": data_type,
-            "nullable": field_name not in required_fields,
-            "description": field_info.get("description", ""),
-        }
+        column = ColumnDefinition(
+            name=field_name,
+            data_type=data_type,
+            nullable=field_name not in required_fields,
+            description=field_info.get("description", ""),
+        )
         columns.append(column)
 
-    # Create the contract
-    contract = {
-        "contract_id": contract_id,
-        "name": name,
-        "description": description,
-        "version": version,
-        "columns": columns,
-        "metadata": {
-            "data_owner": data_owner,
-            "data_owner_email": data_owner_email,
-            "data_steward": data_steward,
-            "data_steward_email": data_steward_email,
-            "sla_uptime_percentage": sla_uptime_percentage,
-            "sla_max_latency_ms": sla_max_latency_ms,
-        },
-        "created_at": datetime.utcnow().isoformat() + "+00:00",
-        "updated_at": datetime.utcnow().isoformat() + "+00:00",
-    }
+    # Create metadata
+    metadata = ContractMetadata(
+        data_owner=data_owner,
+        data_owner_email=data_owner_email,
+        data_steward=data_steward,
+        data_steward_email=data_steward_email,
+        sla_uptime_percentage=sla_uptime_percentage,
+        sla_max_latency_ms=sla_max_latency_ms,
+    )
+
+    # Create the contract using DataContract model
+    now = datetime.now(timezone.utc).isoformat()
+    contract = DataContract(
+        contract_id=contract_id,
+        name=name,
+        description=description,
+        version=version,
+        columns=columns,
+        metadata=metadata,
+        created_at=now,
+        updated_at=now,
+    )
 
     return contract
 
 
-def save_contract_to_json(contract: dict, file_path: str) -> None:
-    """Save a data contract to a JSON file."""
+def save_contract_to_json(contract: DataContract, file_path: str) -> None:
+    """Save a DataContract to a JSON file."""
     with open(file_path, "w") as f:
-        json.dump(contract, f, indent=2)
+        json.dump(contract.model_dump(), f, indent=2)
     print(f"Contract saved to {file_path}")
 
 
@@ -107,4 +111,4 @@ if __name__ == "__main__":
 
     # Also print for verification
     print("\nGenerated Contract:")
-    print(json.dumps(user_contract, indent=2))
+    print(json.dumps(user_contract.model_dump(), indent=2))

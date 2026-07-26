@@ -58,6 +58,22 @@ class SchemaRegistryClient:
                 f"Registry '{self.registry_name}' not found. Create it first with Terraform."
             )
 
+        # Build tags from metadata
+        tags = {
+            "ManagedBy": "python-api",
+            "Source": "data-contract",
+            "ContractVersion": contract.version,
+        }
+        if hasattr(contract, 'metadata') and contract.metadata:
+            tags.update({
+                "DataOwner": contract.metadata.data_owner,
+                "DataOwnerEmail": contract.metadata.data_owner_email,
+                "DataSteward": contract.metadata.data_steward,
+                "DataStewardEmail": contract.metadata.data_steward_email,
+                "SLAUptimePercentage": str(contract.metadata.sla_uptime_percentage),
+                "SLAMaxLatencyMs": str(contract.metadata.sla_max_latency_ms),
+            })
+
         try:
             # Try to get existing schema
             existing = self.glue.get_schema(
@@ -66,14 +82,8 @@ class SchemaRegistryClient:
                     "SchemaName": schema_name,
                 }
             )
-            # Add new version
-            response = self.glue.put_schema_version(
-                RegistryId={"RegistryName": self.registry_name},
-                SchemaName=schema_name,
-                DataFormat=data_format,
-                Compatibility=compatibility,
-                SchemaDefinition=schema_definition,
-            )
+            # Schema exists - just return its ARN
+            response = existing
         except self.glue.exceptions.EntityNotFoundException:
             # Create new schema
             response = self.glue.create_schema(
@@ -83,7 +93,7 @@ class SchemaRegistryClient:
                 Compatibility=compatibility,
                 Description=description,
                 SchemaDefinition=schema_definition,
-                Tags={"ManagedBy": "python-api", "Source": "data-contract"},
+                Tags=tags,
             )
 
         return response.get("SchemaArn", "")
@@ -103,13 +113,13 @@ class SchemaRegistryClient:
             return []
 
     def get_schema_detail(self, schema_name: str) -> dict:
-        """Get details of a specific schema.
+        """Get details of a specific schema including tags/metadata.
 
         Args:
             schema_name: Name of the schema
 
         Returns:
-            Schema details dict
+            Schema details dict with metadata
         """
         try:
             response = self.glue.get_schema(
@@ -121,6 +131,26 @@ class SchemaRegistryClient:
             return response
         except self.glue.exceptions.EntityNotFoundException:
             return {}
+
+    def get_schema_versions(self, schema_name: str) -> list:
+        """Get all versions of a specific schema.
+
+        Args:
+            schema_name: Name of the schema
+
+        Returns:
+            List of schema versions
+        """
+        try:
+            response = self.glue.get_schema_versions(
+                SchemaId={
+                    "RegistryName": self.registry_name,
+                    "SchemaName": schema_name,
+                }
+            )
+            return response.get("Schemas", [])
+        except Exception:
+            return []
 
     @staticmethod
     def _contract_to_avro(contract) -> str:
@@ -144,11 +174,20 @@ class SchemaRegistryClient:
                 field["type"] = ["null", field["type"]]
             fields.append(field)
 
+        # Build comprehensive documentation including metadata
+        doc = contract.description or ""
+        if hasattr(contract, 'metadata') and contract.metadata:
+            doc += f"\n\nMetadata:\n"
+            doc += f"  Data Owner: {contract.metadata.data_owner} ({contract.metadata.data_owner_email})\n"
+            doc += f"  Data Steward: {contract.metadata.data_steward} ({contract.metadata.data_steward_email})\n"
+            doc += f"  SLA Uptime: {contract.metadata.sla_uptime_percentage}%\n"
+            doc += f"  SLA Max Latency: {contract.metadata.sla_max_latency_ms}ms"
+
         schema = {
             "type": "record",
             "name": contract.name.replace(" ", ""),
             "namespace": "com.example.schema",
-            "doc": contract.description or "",
+            "doc": doc,
             "fields": fields,
         }
 

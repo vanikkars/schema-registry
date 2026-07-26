@@ -258,6 +258,13 @@ schema
 
 metadata
 ![img.png](images/the-metadata.png)
+
+```bash
+curl  -i http://localhost:8000/api/v1/schemas/detail/users-v1
+curl  -i http://localhost:8000/api/v1/schemas/versions/users-v1
+```
+
+
 ## Key Components
 
 ### Application Models (`app/models.py`)

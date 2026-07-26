@@ -1,0 +1,241 @@
+"""Upload data contracts to AWS Glue Schema Registry."""
+
+import json
+import sys
+from pathlib import Path
+from typing import Optional
+
+import boto3
+
+
+def upload_schema_to_registry(
+    registry_name: str,
+    schema_name: str,
+    schema_file: Path,
+    data_format: str = "AVRO",
+    compatibility: str = "BACKWARD",
+    description: str = "",
+    region: str = "us-east-1",
+) -> dict:
+    """Upload a schema to AWS Glue Schema Registry.
+
+    Args:
+        registry_name: Name of the Glue Schema Registry
+        schema_name: Name for the schema
+        schema_file: Path to the contract JSON file
+        data_format: Data format (AVRO, PROTOBUF, JSON)
+        compatibility: Compatibility mode (NONE, DISABLED, BACKWARD, FORWARD, BOTH)
+        description: Schema description
+        region: AWS region
+
+    Returns:
+        Response from Glue API
+    """
+    # Read the contract file
+    if not schema_file.exists():
+        raise FileNotFoundError(f"Schema file not found: {schema_file}")
+
+    with open(schema_file, "r") as f:
+        contract = json.load(f)
+
+    # Extract or create schema definition
+    # If it's a data contract (has columns), convert to AVRO schema
+    if "columns" in contract:
+        schema_definition = _convert_contract_to_avro(contract)
+    else:
+        # Assume it's already a proper schema definition
+        schema_definition = json.dumps(contract)
+
+    # Create Glue client
+    glue = boto3.client("glue", region_name=region)
+
+    try:
+        # Check if registry exists
+        registry = glue.get_registry(RegistryId={"RegistryName": registry_name})
+        registry_arn = registry["RegistryArn"]
+        print(f"✅ Found registry: {registry_name} (ARN: {registry_arn})")
+    except glue.exceptions.EntityNotFoundException:
+        raise ValueError(f"Registry '{registry_name}' not found. Create it first with Terraform.")
+
+    try:
+        # Try to get existing schema
+        existing = glue.get_schema(
+            SchemaId={"RegistryName": registry_name, "SchemaName": schema_name}
+        )
+        version = existing["LatestSchemaVersion"]
+        print(f"✅ Found existing schema: {schema_name} (v{version})")
+        updating = True
+    except glue.exceptions.EntityNotFoundException:
+        print(f"📝 Creating new schema: {schema_name}")
+        updating = False
+
+    if updating:
+        # Add new version to existing schema
+        response = glue.put_schema_version(
+            RegistryId={"RegistryName": registry_name},
+            SchemaName=schema_name,
+            DataFormat=data_format,
+            Compatibility=compatibility,
+            SchemaDefinition=schema_definition,
+        )
+        print(f"✅ Schema version updated: v{response['VersionNumber']}")
+    else:
+        # Create new schema
+        response = glue.create_schema(
+            RegistryId={"RegistryName": registry_name},
+            SchemaName=schema_name,
+            DataFormat=data_format,
+            Compatibility=compatibility,
+            Description=description or f"Schema for {schema_name}",
+            SchemaDefinition=schema_definition,
+            Tags={"ManagedBy": "python", "Source": "data-contract"},
+        )
+        print(f"✅ Schema created: {schema_name}")
+        print(f"   ARN: {response['SchemaArn']}")
+        print(f"   Version: {response['VersionNumber']}")
+
+    return response
+
+
+def _convert_contract_to_avro(contract: dict) -> str:
+    """Convert a data contract to AVRO schema format.
+
+    Args:
+        contract: Data contract dict with 'columns' field
+
+    Returns:
+        JSON string of AVRO schema
+    """
+    columns = contract.get("columns", [])
+    name = contract.get("name", "Record").replace(" ", "")
+
+    fields = []
+    for col in columns:
+        field = {
+            "name": col["name"],
+            "type": _map_type_to_avro(col["data_type"]),
+        }
+        if col.get("description"):
+            field["doc"] = col["description"]
+        if col.get("nullable"):
+            field["type"] = ["null", field["type"]]
+        fields.append(field)
+
+    schema = {
+        "type": "record",
+        "name": name,
+        "namespace": "com.example.schema",
+        "doc": contract.get("description", ""),
+        "fields": fields,
+    }
+
+    return json.dumps(schema)
+
+
+def _map_type_to_avro(data_type: str) -> str:
+    """Map contract data types to AVRO types.
+
+    Args:
+        data_type: Contract data type (string, integer, date, etc.)
+
+    Returns:
+        AVRO type
+    """
+    type_map = {
+        "string": "string",
+        "integer": "int",
+        "number": "double",
+        "boolean": "boolean",
+        "date": "string",  # AVRO doesn't have date, use string with format
+        "timestamp": "string",
+        "object": "string",
+        "array": "array",
+    }
+    return type_map.get(data_type, "string")
+
+
+def list_schemas(registry_name: str, region: str = "us-east-1") -> None:
+    """List all schemas in a registry.
+
+    Args:
+        registry_name: Name of the Glue Schema Registry
+        region: AWS region
+    """
+    glue = boto3.client("glue", region_name=region)
+
+    try:
+        schemas = glue.list_schemas(RegistryId={"RegistryName": registry_name})
+        print(f"\n📋 Schemas in '{registry_name}':")
+        for schema in schemas.get("Schemas", []):
+            print(f"  - {schema['SchemaName']} (v{schema['LatestSchemaVersion']})")
+    except glue.exceptions.EntityNotFoundException:
+        print(f"❌ Registry '{registry_name}' not found")
+
+
+def main():
+    """CLI for uploading schemas."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Upload schemas to AWS Glue Schema Registry")
+    parser.add_argument(
+        "command",
+        choices=["upload", "list"],
+        help="Command to execute",
+    )
+    parser.add_argument(
+        "--registry",
+        default="schema-registry",
+        help="Registry name (default: schema-registry)",
+    )
+    parser.add_argument(
+        "--schema-name",
+        help="Schema name (required for upload)",
+    )
+    parser.add_argument(
+        "--contract-file",
+        type=Path,
+        help="Path to contract JSON file (required for upload)",
+    )
+    parser.add_argument(
+        "--format",
+        default="AVRO",
+        choices=["AVRO", "PROTOBUF", "JSON"],
+        help="Data format (default: AVRO)",
+    )
+    parser.add_argument(
+        "--compatibility",
+        default="BACKWARD",
+        choices=["NONE", "DISABLED", "BACKWARD", "FORWARD", "BOTH"],
+        help="Compatibility mode (default: BACKWARD)",
+    )
+    parser.add_argument(
+        "--region",
+        default="us-east-1",
+        help="AWS region (default: us-east-1)",
+    )
+
+    args = parser.parse_args()
+
+    try:
+        if args.command == "upload":
+            if not args.schema_name or not args.contract_file:
+                parser.error("--schema-name and --contract-file required for upload command")
+
+            upload_schema_to_registry(
+                registry_name=args.registry,
+                schema_name=args.schema_name,
+                schema_file=args.contract_file,
+                data_format=args.format,
+                compatibility=args.compatibility,
+                region=args.region,
+            )
+        elif args.command == "list":
+            list_schemas(registry_name=args.registry, region=args.region)
+
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

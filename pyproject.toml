@@ -1,0 +1,7 @@
+[project]
+name = "schema-registry"
+version = "0.1.0"
+description = "Kafka producer for transactions with schema registry"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []

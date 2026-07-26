@@ -15,26 +15,34 @@ This project provides a complete solution for:
 
 ```
 schema-registry/
-├── app/                         # Application domain models
+├── app/                             # Application domain models
 │   ├── __init__.py
-│   └── models.py               # User and other app models
-├── contracts_management/        # Contract generation and management
+│   └── models.py                   # User and other app models
+├── contracts_management/            # Contract generation and management
 │   ├── __init__.py
-│   ├── models.py               # DataContract, ContractMetadata, ColumnDefinition
-│   └── generate_contract.py    # Generate contracts from Pydantic models
-├── contracts/                  # Generated data contracts (JSON)
+│   ├── models.py                   # DataContract, ContractMetadata, ColumnDefinition
+│   ├── generate_contract.py        # Generate contracts from Pydantic models
+│   └── upload_to_glue.py           # CLI for uploading to registry
+├── contracts/                       # Generated data contracts (JSON)
 │   ├── user_contract.json
 │   ├── test_contract.json
 │   └── transaction_contract.json
-├── infra/                      # Infrastructure as Code
-│   ├── aws/                    # AWS Glue Schema Registry (Terraform)
+├── infra/                           # Infrastructure as Code
+│   ├── aws/                         # AWS Glue Schema Registry (Terraform)
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   ├── terraform.tfvars
 │   │   ├── backend.tf
 │   │   └── README.md
 │   └── README.md
-└── PROJECT_STRUCTURE.md        # Detailed structure documentation
+├── registry-api/                    # FastAPI service for schema registry
+│   ├── __init__.py
+│   ├── main.py                     # FastAPI application
+│   ├── api.py                      # API endpoints and client
+│   ├── run.sh                      # Startup script
+│   └── README.md                   # Service documentation
+├── PROJECT_STRUCTURE.md            # Detailed structure documentation
+└── API_USAGE.md                    # API documentation
 ```
 
 ## Setup & Configuration

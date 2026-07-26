@@ -152,6 +152,85 @@ class SchemaRegistryClient:
         except Exception:
             return []
 
+    def create_iceberg_table(
+        self,
+        contract,
+        database_name: str = "iceberg_tables",
+        s3_location: str = None,
+    ) -> dict:
+        """Create an Iceberg table from a data contract.
+
+        Args:
+            contract: DataContract model instance
+            database_name: Glue database name
+            s3_location: S3 location for table data (auto-generated if None)
+
+        Returns:
+            Table creation response with details
+        """
+        table_name = contract.contract_id.replace("-", "_").lower()
+
+        # Generate S3 location if not provided
+        if not s3_location:
+            account_id = boto3.client("sts").get_caller_identity()["Account"]
+            s3_location = f"s3://iceberg-data-{account_id}-{self.region}/{database_name}/{table_name}"
+
+        # Convert contract columns to Glue StorageDescriptor format
+        columns = []
+        for col in contract.columns:
+            glue_type = self._map_type_to_glue(col.data_type)
+            columns.append({
+                "Name": col.name,
+                "Type": glue_type,
+                "Comment": col.description or "",
+            })
+
+        try:
+            # Create or update the table
+            response = self.glue.create_table(
+                DatabaseName=database_name,
+                TableInput={
+                    "Name": table_name,
+                    "Description": contract.description or f"Iceberg table for {contract.name}",
+                    "StorageDescriptor": {
+                        "Columns": columns,
+                        "Location": s3_location,
+                        "InputFormat": "org.apache.iceberg.mr.hive.IcebergInputFormat",
+                        "OutputFormat": "org.apache.iceberg.mr.hive.IcebergOutputFormat",
+                        "SerdeInfo": {
+                            "SerializationLibrary": "org.apache.iceberg.serde.IcebergSerDe",
+                        },
+                    },
+                    "PartitionKeys": [],
+                    "TableType": "EXTERNAL_TABLE",
+                    "Parameters": {
+                        "EXTERNAL": "TRUE",
+                        "table_type": "ICEBERG",
+                        "iceberg_table_version": contract.version,
+                        "data_owner": contract.metadata.data_owner if contract.metadata else "Unknown",
+                        "data_steward": contract.metadata.data_steward if contract.metadata else "Unknown",
+                    },
+                }
+            )
+            return {
+                "status": "created",
+                "table_name": table_name,
+                "database_name": database_name,
+                "s3_location": s3_location,
+                "message": f"Iceberg table '{table_name}' created successfully",
+            }
+        except self.glue.exceptions.AlreadyExistsException:
+            # Table already exists - return its location
+            return {
+                "status": "exists",
+                "table_name": table_name,
+                "database_name": database_name,
+                "s3_location": s3_location,
+                "message": f"Iceberg table '{table_name}' already exists",
+            }
+        except Exception as e:
+            raise ValueError(f"Failed to create Iceberg table: {str(e)}")
+
     @staticmethod
     def _contract_to_avro(contract) -> str:
         """Convert a DataContract to AVRO schema format.
@@ -192,6 +271,28 @@ class SchemaRegistryClient:
         }
 
         return json.dumps(schema)
+
+    @staticmethod
+    def _map_type_to_glue(data_type: str) -> str:
+        """Map contract data types to AWS Glue types.
+
+        Args:
+            data_type: Contract data type
+
+        Returns:
+            Glue/Hive type
+        """
+        type_map = {
+            "string": "string",
+            "integer": "bigint",
+            "number": "double",
+            "boolean": "boolean",
+            "date": "date",
+            "timestamp": "timestamp",
+            "object": "string",
+            "array": "array<string>",
+        }
+        return type_map.get(data_type, "string")
 
     @staticmethod
     def _map_type_to_avro(data_type: str) -> str:

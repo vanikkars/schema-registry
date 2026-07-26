@@ -39,10 +39,10 @@ docker-down:
 	@echo "✅ Services stopped"
 
 docker-logs:
-	docker-compose logs -f registry-api
+	docker-compose logs -f registry_api
 
 docker-shell:
-	docker-compose exec registry-api /bin/bash
+	docker-compose exec registry_api /bin/bash
 
 docker-ps:
 	docker-compose ps
@@ -75,14 +75,14 @@ setup:
 
 run-api:
 	source .env
-	python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	bash registry_api/run.sh
 
 generate:
 	python contracts_management/generate_contract.py
 
 test:
 	source .env
-	docker-compose exec registry-api pytest tests/ -v
+	docker-compose exec registry_api pytest tests/ -v
 
 # Check Commands
 check-env:

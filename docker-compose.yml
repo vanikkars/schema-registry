@@ -4,7 +4,7 @@ services:
   registry-api:
     build:
       context: .
-      dockerfile: registry-api/Dockerfile
+      dockerfile: registry_api/Dockerfile
     container_name: schema-registry-api
     ports:
       - "8000:8000"

@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file from registry-api subdirectory
-COPY registry-api/requirements.txt .
+# Copy requirements file from registry_api subdirectory
+COPY registry_api/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --upgrade pip && \
@@ -24,8 +24,8 @@ RUN pip install --upgrade pip && \
 # Copy entire project (excluding things in .dockerignore)
 COPY . .
 
-# Set Python path to include parent directory so registry_api can be imported
-ENV PYTHONPATH=/app:$PYTHONPATH
+# Set Python path to include working directory so registry_api can be imported
+ENV PYTHONPATH=/app
 
 # Ensure we're in the right directory
 WORKDIR /app
@@ -38,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # Run the application using python -m to properly resolve module paths
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "registry_api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

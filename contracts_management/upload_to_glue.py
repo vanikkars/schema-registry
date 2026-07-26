@@ -1,11 +1,180 @@
 """Upload data contracts to AWS Glue Schema Registry."""
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import boto3
+
+
+class SchemaRegistryClient:
+    """Client for interacting with AWS Glue Schema Registry."""
+
+    def __init__(
+        self,
+        registry_name: str = None,
+        region: str = None,
+    ):
+        """Initialize the Schema Registry client.
+
+        Args:
+            registry_name: Name of the Glue Schema Registry (defaults to env var TF_VAR_registry_name)
+            region: AWS region (defaults to AWS_DEFAULT_REGION env var or us-east-1)
+        """
+        self.registry_name = registry_name or os.getenv("TF_VAR_registry_name", "schema-registry")
+        self.region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+        self.glue = boto3.client("glue", region_name=self.region)
+
+    def upload_schema_to_registry(
+        self,
+        contract,
+        data_format: str = "AVRO",
+        compatibility: str = "BACKWARD",
+    ) -> str:
+        """Upload a DataContract to AWS Glue Schema Registry.
+
+        Args:
+            contract: DataContract model instance
+            data_format: Data format (AVRO, PROTOBUF, JSON)
+            compatibility: Compatibility mode (NONE, DISABLED, BACKWARD, FORWARD, BOTH)
+
+        Returns:
+            Schema ARN
+        """
+        schema_name = contract.contract_id
+        description = contract.description or f"Schema for {schema_name}"
+
+        # Convert contract to AVRO schema
+        schema_definition = self._contract_to_avro(contract)
+
+        try:
+            # Check if registry exists
+            registry = self.glue.get_registry(RegistryId={"RegistryName": self.registry_name})
+            registry_arn = registry["RegistryArn"]
+        except self.glue.exceptions.EntityNotFoundException:
+            raise ValueError(
+                f"Registry '{self.registry_name}' not found. Create it first with Terraform."
+            )
+
+        try:
+            # Try to get existing schema
+            existing = self.glue.get_schema(
+                SchemaId={
+                    "RegistryName": self.registry_name,
+                    "SchemaName": schema_name,
+                }
+            )
+            # Add new version
+            response = self.glue.put_schema_version(
+                RegistryId={"RegistryName": self.registry_name},
+                SchemaName=schema_name,
+                DataFormat=data_format,
+                Compatibility=compatibility,
+                SchemaDefinition=schema_definition,
+            )
+        except self.glue.exceptions.EntityNotFoundException:
+            # Create new schema
+            response = self.glue.create_schema(
+                RegistryId={"RegistryName": self.registry_name},
+                SchemaName=schema_name,
+                DataFormat=data_format,
+                Compatibility=compatibility,
+                Description=description,
+                SchemaDefinition=schema_definition,
+                Tags={"ManagedBy": "python-api", "Source": "data-contract"},
+            )
+
+        return response.get("SchemaArn", "")
+
+    def list_schemas(self) -> list:
+        """List all schemas in the registry.
+
+        Returns:
+            List of schema dicts
+        """
+        try:
+            response = self.glue.list_schemas(
+                RegistryId={"RegistryName": self.registry_name}
+            )
+            return response.get("Schemas", [])
+        except self.glue.exceptions.EntityNotFoundException:
+            return []
+
+    def get_schema_detail(self, schema_name: str) -> dict:
+        """Get details of a specific schema.
+
+        Args:
+            schema_name: Name of the schema
+
+        Returns:
+            Schema details dict
+        """
+        try:
+            response = self.glue.get_schema(
+                SchemaId={
+                    "RegistryName": self.registry_name,
+                    "SchemaName": schema_name,
+                }
+            )
+            return response
+        except self.glue.exceptions.EntityNotFoundException:
+            return {}
+
+    @staticmethod
+    def _contract_to_avro(contract) -> str:
+        """Convert a DataContract to AVRO schema format.
+
+        Args:
+            contract: DataContract model instance
+
+        Returns:
+            JSON string of AVRO schema
+        """
+        fields = []
+        for col in contract.columns:
+            field = {
+                "name": col.name,
+                "type": SchemaRegistryClient._map_type_to_avro(col.data_type),
+            }
+            if col.description:
+                field["doc"] = col.description
+            if col.nullable:
+                field["type"] = ["null", field["type"]]
+            fields.append(field)
+
+        schema = {
+            "type": "record",
+            "name": contract.name.replace(" ", ""),
+            "namespace": "com.example.schema",
+            "doc": contract.description or "",
+            "fields": fields,
+        }
+
+        return json.dumps(schema)
+
+    @staticmethod
+    def _map_type_to_avro(data_type: str) -> str:
+        """Map contract data types to AVRO types.
+
+        Args:
+            data_type: Contract data type
+
+        Returns:
+            AVRO type
+        """
+        type_map = {
+            "string": "string",
+            "integer": "int",
+            "number": "double",
+            "boolean": "boolean",
+            "date": "string",
+            "timestamp": "string",
+            "object": "string",
+            "array": "array",
+        }
+        return type_map.get(data_type, "string")
 
 
 def upload_schema_to_registry(

@@ -231,6 +231,33 @@ response = glue.put_schema_version(
 print(f"Schema Version: {response['VersionNumber']}")
 ```
 
+
+## Create a contract via schema registry
+```bash
+curl -X POST "http://localhost:8000/api/v1/schemas/register" \
+    -H "Content-Type: application/json" \
+    -d @contracts/user_contract.json
+```
+
+response
+```bash
+{
+    "status":"success",
+    "message":"Schema registered successfully",
+    "schema_arn":"arn:aws:glue:us-east-1:700308877625:schema/schema-registry/users-v1",
+    "schema_name":"users-v1",
+    "version":"1.0.0"
+}
+```
+### in UI
+high level
+![img.png](images/high-level.png)
+
+schema
+![img.png](images/the-schema.png)
+
+metadata
+![img.png](images/the-metadata.png)
 ## Key Components
 
 ### Application Models (`app/models.py`)

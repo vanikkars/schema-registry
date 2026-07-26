@@ -23,6 +23,13 @@ help:
 	@echo "  make generate        - Generate contracts"
 	@echo "  make test            - Run tests"
 	@echo ""
+	@echo "Schema Commands:"
+	@echo "  make upload-contract        - Upload a contract (prompts for file)"
+	@echo "  make upload-user-contract   - Upload user contract"
+	@echo "  make list-schemas           - List all schemas in registry"
+	@echo "  make schema-detail          - Get schema details (use SCHEMA_NAME=<name>)"
+	@echo "  make health                 - Check API health"
+	@echo ""
 
 # Docker Production Commands
 docker-build:
@@ -128,13 +135,18 @@ list-endpoints:
 health:
 	@curl -s http://localhost:8000/health || echo "❌ API not responding"
 
-register-user-schema:
-	curl -X POST "http://localhost:8000/api/v1/schemas/register" \
-		-H "Content-Type: application/json" \
-		-d @contracts/user_contract.json
+upload-contract:
+	bash contracts_management/upload_contract.sh
+
+upload-user-contract:
+	bash contracts_management/upload_contract.sh contracts/user_contract.json
 
 list-schemas:
-	curl "http://localhost:8000/api/v1/schemas/list"
+	bash contracts_management/list_schemas.sh
+
+schema-detail:
+	@echo "Usage: make schema-detail SCHEMA_NAME=<name>"
+	@curl -s "http://localhost:8000/api/v1/schemas/detail/$${SCHEMA_NAME}" | jq .
 
 list-all-commands:
 	@echo "All available targets:"

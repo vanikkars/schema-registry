@@ -200,7 +200,7 @@ import json
 import requests
 
 # Read contract
-with open("../contracts/user_contract.json") as f:
+with open("../contracts/user/user_contract.json") as f:
     contract = json.load(f)
 
 # Register schema

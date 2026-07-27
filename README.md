@@ -217,7 +217,7 @@ import json
 
 glue = boto3.client('glue', region_name='us-east-1')
 
-with open('contracts/user_contract.json', 'r') as f:
+with open('contracts/user/user_contract.json', 'r') as f:
     schema_def = f.read()
 
 response = glue.put_schema_version(

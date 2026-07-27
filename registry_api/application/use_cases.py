@@ -201,7 +201,7 @@ class GetSchemaVersionUseCase:
             version: Version string
 
         Returns:
-            Schema version details
+            Schema version details with full schema definition
 
         Raises:
             SchemaNotFoundError: If schema does not exist

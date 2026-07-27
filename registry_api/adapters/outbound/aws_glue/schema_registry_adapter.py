@@ -2,10 +2,13 @@
 
 import os
 import boto3
+import logging
 from registry_api.application.ports import SchemaRegistryPort
 from registry_api.domain.models import DataContract
 from registry_api.domain.exceptions import RegistryNotFoundError
 from .mappers import contract_to_avro, map_type_to_avro
+
+logger = logging.getLogger(__name__)
 
 
 class GlueSchemaRegistryAdapter(SchemaRegistryPort):
@@ -142,32 +145,63 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
             return []
 
     def get_schema_versions(self, schema_name: str) -> dict:
-        """Get version information for a schema.
+        """Get version information for a schema, including the schema definition.
 
         Args:
             schema_name: Name of the schema
 
         Returns:
-            Schema details including version information, or None if not found
+            Schema details including version information and schema definition, or None if not found
         """
         try:
-            response = self.glue.get_schema(
+            schema_response = self.glue.get_schema(
                 SchemaId={
                     "RegistryName": self.registry_name,
                     "SchemaName": schema_name,
                 }
             )
+
+            # Get the latest schema version to retrieve the actual schema definition
+            latest_version = schema_response.get("LatestSchemaVersion", 0)
+            schema_def = None
+
+            if latest_version > 0:
+                try:
+                    version_response = self.glue.get_schema_version(
+                        SchemaId={
+                            "RegistryName": self.registry_name,
+                            "SchemaName": schema_name,
+                        },
+                        SchemaVersionNumber={"LatestVersion": True},
+                    )
+                    schema_def = version_response.get("SchemaDefinition", "")
+                except Exception as e:
+                    logger.warning(f"Could not fetch schema definition for {schema_name}: {e}")
+                    schema_def = None
+
+            # Parse schema definition if available (for AVRO format)
+            schema_content = None
+            if schema_def:
+                import json
+                try:
+                    schema_content = json.loads(schema_def)
+                except Exception:
+                    schema_content = schema_def
+
             # Extract version info from schema details
             return {
                 "schema_name": schema_name,
-                "latest_version": response.get("LatestSchemaVersion", 0),
-                "next_version": response.get("NextSchemaVersion", 0),
-                "checkpoint": response.get("SchemaCheckpoint", ""),
-                "status": response.get("SchemaStatus", "AVAILABLE"),
-                "created_time": response.get("CreatedTime"),
-                "updated_time": response.get("UpdatedTime"),
-                "arn": response.get("SchemaArn"),
-                "description": response.get("Description", ""),
+                "latest_version": latest_version,
+                "next_version": schema_response.get("NextSchemaVersion", 0),
+                "checkpoint": schema_response.get("SchemaCheckpoint", ""),
+                "status": schema_response.get("SchemaStatus", "AVAILABLE"),
+                "created_time": schema_response.get("CreatedTime"),
+                "updated_time": schema_response.get("UpdatedTime"),
+                "arn": schema_response.get("SchemaArn"),
+                "description": schema_response.get("Description", ""),
+                "data_format": schema_response.get("DataFormat", "AVRO"),
+                "compatibility": schema_response.get("Compatibility", "BACKWARD"),
+                "schema": schema_content,
             }
         except Exception:
             return None

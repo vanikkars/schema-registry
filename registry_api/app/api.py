@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from typing import Optional
-from contracts_management.models import DataContract
-from contracts_management.upload_to_glue import SchemaRegistryClient
+from .models import DataContract
+from .upload_to_glue import SchemaRegistryClient
 
 router = APIRouter(prefix="/api/v1/schemas", tags=["schemas"])
 

@@ -4,14 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from pydantic.json_schema import model_json_schema
 
-# Support both direct and module execution
-try:
-    from .models import DataContract, ContractMetadata, ColumnDefinition
-except ImportError:
-    from models import DataContract, ContractMetadata, ColumnDefinition
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from app.models import User
+from .models import DataContract, ContractMetadata, ColumnDefinition
 
 
 def generate_data_contract(
@@ -102,7 +95,14 @@ def save_contract_to_json(contract: DataContract, file_path: str) -> None:
 
 def main():
     """Generate contracts from application models."""
-    # Generate contract from User model
+    from pydantic import BaseModel, Field
+    from datetime import date
+
+    class User(BaseModel):
+        user_name: str = Field(..., description="Username for the user")
+        email: str = Field(..., description="Email address of the user")
+        date_of_birth: date = Field(..., description="Date of birth in YYYY-MM-DD format")
+
     user_contract = generate_data_contract(
         model=User,
         contract_id="users-v1",
@@ -118,7 +118,7 @@ def main():
     )
 
     # Save to JSON file
-    contract_path = Path(__file__).parent.parent / "contracts" / "user_contract.json"
+    contract_path = Path(__file__).parent.parent.parent / "contracts" / "user_contract.json"
     save_contract_to_json(user_contract, str(contract_path))
 
     # Also print for verification

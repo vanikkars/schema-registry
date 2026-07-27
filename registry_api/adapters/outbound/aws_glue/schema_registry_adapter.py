@@ -151,7 +151,7 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
             schema_name: Name of the schema
 
         Returns:
-            Schema details including version information and schema definition, or None if not found
+            Schema details including version information, schema definition, and metadata, or None if not found
         """
         try:
             schema_response = self.glue.get_schema(
@@ -188,6 +188,28 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 except Exception:
                     schema_content = schema_def
 
+            # Extract metadata from tags (need separate API call)
+            tags = {}
+            try:
+                schema_arn = schema_response.get("SchemaArn", "")
+                if schema_arn:
+                    tags_response = self.glue.get_tags(ResourceArn=schema_arn)
+                    tags = tags_response.get("Tags", {})
+            except Exception as e:
+                logger.warning(f"Could not fetch tags for {schema_name}: {e}")
+
+            metadata = {
+                "data_owner": tags.get("DataOwner"),
+                "data_owner_email": tags.get("DataOwnerEmail"),
+                "data_steward": tags.get("DataSteward"),
+                "data_steward_email": tags.get("DataStewardEmail"),
+                "sla_uptime_percentage": self._parse_float(tags.get("SLAUptimePercentage")),
+                "sla_max_latency_ms": self._parse_int(tags.get("SLAMaxLatencyMs")),
+                "contract_version": tags.get("ContractVersion"),
+                "managed_by": tags.get("ManagedBy"),
+                "source": tags.get("Source"),
+            }
+
             # Extract version info from schema details
             return {
                 "schema_name": schema_name,
@@ -201,7 +223,26 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 "description": schema_response.get("Description", ""),
                 "data_format": schema_response.get("DataFormat", "AVRO"),
                 "compatibility": schema_response.get("Compatibility", "BACKWARD"),
+                "metadata": metadata,
                 "schema": schema_content,
             }
         except Exception:
+            return None
+
+    def _parse_float(self, value: str) -> float:
+        """Parse string to float, return None if invalid."""
+        if not value:
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _parse_int(self, value: str) -> int:
+        """Parse string to int, return None if invalid."""
+        if not value:
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
             return None

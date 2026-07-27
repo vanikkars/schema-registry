@@ -233,6 +233,194 @@ print(f"Schema Version: {response['VersionNumber']}")
 
 
 ## Create a contract via schema registry
+
+## check existing schemas
+```bash
+curl  -i http://localhost:8000/api/v1/schemas
+HTTP/1.1 200 OK
+date: Mon, 27 Jul 2026 18:27:07 GMT
+server: uvicorn
+content-length: 98
+content-type: application/json
+
+{
+  "data": [],
+  "meta": {
+    "total": 0,
+    "count": 0,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+### post a new schema
+```bash
+curl -X POST "http://localhost:8000/api/v1/schemas" -H "Content-Type: application/json" -d @contracts/user/01/user_v1.json
+{
+  "data": {
+    "schema": {
+      "arn": "arn:aws:glue:us-east-1:075502422424:schema/schema-registry/users-v1",
+      "name": "users-v1",
+      "version": "1.0.0",
+      "description": "Schema for user records",
+      "latest_version": 1,
+      "next_version": 2,
+      "checkpoint": 1,
+      "status": "AVAILABLE",
+      "data_format": "AVRO",
+      "compatibility": "BACKWARD",
+      "columns": [
+        {
+          "name": "user_name",
+          "type": "string",
+          "nullable": false,
+          "description": "Username for the user"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "nullable": false,
+          "description": "Email address of the user"
+        },
+        {
+          "name": "date_of_birth",
+          "type": "date",
+          "nullable": false,
+          "description": "Date of birth in YYYY-MM-DD format"
+        }
+      ],
+      "metadata": {
+        "data_owner": "User Management",
+        "data_owner_email": "user-mgmt@company.com",
+        "data_steward": "Data Engineering",
+        "data_steward_email": "data-engineering@company.com",
+        "sla_uptime_percentage": 99.95,
+        "sla_max_latency_ms": 5000
+      },
+      "created_at": "2026-07-27T18:29:29.373Z",
+      "updated_at": "2026-07-27T18:29:29.373Z"
+    },
+    "table": {
+      "name": "users_v1",
+      "database": "iceberg_tables",
+      "location": "s3://iceberg-data-075502422424-us-east-1/iceberg_tables/users_v1",
+      "status": "created"
+    }
+  }
+}
+```
+
+
+### check again available schemas
+```bash
+curl  -i http://localhost:8000/api/v1/schemas
+HTTP/1.1 200 OK
+date: Mon, 27 Jul 2026 18:31:50 GMT
+server: uvicorn
+content-length: 456
+content-type: application/json
+
+{
+  "data": [
+    {
+      "RegistryName": "schema-registry",
+      "SchemaName": "users-v1",
+      "SchemaArn": "arn:aws:glue:us-east-1:075502422424:schema/schema-registry/users-v1",
+      "Description": "Schema for user records",
+      "SchemaStatus": "AVAILABLE",
+      "CreatedTime": "2026-07-27T18:29:29.374Z",
+      "UpdatedTime": "2026-07-27T18:29:29.374Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "count": 1,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+
+### let's pull the details
+
+```bash
+curl  -i http://localhost:8000/api/v1/schemas/users-v1
+HTTP/1.1 200 OK
+date: Mon, 27 Jul 2026 18:34:45 GMT
+server: uvicorn
+content-length: 546
+content-type: application/json
+
+{
+  "data": {
+    "name": "users-v1",
+    "arn": "arn:aws:glue:us-east-1:075502422424:schema/schema-registry/users-v1",
+    "description": "Schema for user records",
+    "status": "AVAILABLE",
+    "data_format": "AVRO",
+    "compatibility": "BACKWARD",
+    "latest_version": 1,
+    "next_version": 2,
+    "checkpoint": 1,
+    "created_time": "2026-07-27T18:29:29.373Z",
+    "updated_time": "2026-07-27T18:29:29.373Z",
+    "registry_name": "schema-registry",
+    "registry_arn": "arn:aws:glue:us-east-1:075502422424:registry/schema-registry"
+  }
+}
+```
+
+### let's check the versions
+```bash
+curl  -i http://localhost:8000/api/v1/schemas/users-v1/versions
+HTTP/1.1 200 OK
+date: Mon, 27 Jul 2026 18:35:43 GMT
+server: uvicorn
+content-length: 369
+content-type: application/json
+
+{
+  "data": {
+    "schema_name": "users-v1",
+    "latest_version": 1,
+    "next_version": 2,
+    "checkpoint": 1,
+    "status": "AVAILABLE",
+    "created_time": "2026-07-27T18:29:29.373Z",
+    "updated_time": "2026-07-27T18:29:29.373Z",
+    "arn": "arn:aws:glue:us-east-1:075502422424:schema/schema-registry/users-v1",
+    "description": "Schema for user records"
+  }
+}
+```
+
+### let's check the version
+```bash
+curl  -i http://localhost:8000/api/v1/schemas/users-v1/versions/1
+HTTP/1.1 200 OK
+date: Mon, 27 Jul 2026 18:36:28 GMT
+server: uvicorn
+content-length: 369
+content-type: application/json
+
+{
+  "data": {
+    "schema_name": "users-v1",
+    "latest_version": 1,
+    "next_version": 2,
+    "checkpoint": 1,
+    "status": "AVAILABLE",
+    "created_time": "2026-07-27T18:29:29.373Z",
+    "updated_time": "2026-07-27T18:29:29.373Z",
+    "arn": "arn:aws:glue:us-east-1:075502422424:schema/schema-registry/users-v1",
+    "description": "Schema for user records"
+  }
+}
+```
+
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/schemas/register" \
     -H "Content-Type: application/json" \

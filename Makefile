@@ -35,6 +35,9 @@ help:
 docker-build:
 	docker-compose build
 
+docker-up-build:
+	docker-compose up --build
+
 docker-up:
 	docker-compose up -d
 	@echo "✅ Services started"

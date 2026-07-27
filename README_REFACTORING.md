@@ -44,7 +44,7 @@ Hexagonal Architecture with clear layer separation:
    - File organization
    - 5-minute read
 
-3. **[ARCHITECTURE.md](ARCHITECTURE.md)**
+3. **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**
    - System diagrams
    - Layer responsibilities
    - Data flow examples

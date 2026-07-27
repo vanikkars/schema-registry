@@ -1,5 +1,5 @@
 {
-  "contract_id": "users-v2",
+  "contract_id": "users-v1",
   "name": "Users",
   "description": "Schema for user records (v2 with profile fields)",
   "version": "2.0.0",
@@ -23,16 +23,10 @@
       "description": "Date of birth in YYYY-MM-DD format"
     },
     {
-      "name": "full_name",
+      "name": "zip_code",
       "data_type": "string",
       "nullable": true,
-      "description": "Full name of the user (added in v2, optional for backwards compatibility)"
-    },
-    {
-      "name": "phone_number",
-      "data_type": "string",
-      "nullable": true,
-      "description": "Contact phone number (added in v2, optional for backwards compatibility)"
+      "description": "Zip code of the user (added in v2, optional for backwards compatibility)"
     },
     {
       "name": "last_login_at",

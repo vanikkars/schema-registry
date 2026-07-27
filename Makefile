@@ -85,7 +85,8 @@ run-api:
 	bash registry_api/run.sh
 
 generate:
-	python contracts_management/generate_contract.py
+	@echo "❌ Contract generation moved to static contracts/ folder"
+	@echo "   Add or modify contracts in: contracts/"
 
 test:
 	source .env

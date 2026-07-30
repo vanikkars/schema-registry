@@ -39,7 +39,7 @@ docker-up-build:
 	docker-compose up --build
 
 docker-up:
-	docker-compose up -d
+	docker-compose up
 	@echo "✅ Services started"
 	@echo "📍 API: http://localhost:8000"
 	@echo "📖 Docs: http://localhost:8000/docs"
@@ -94,6 +94,17 @@ generate:
 test:
 	source .env
 	docker-compose exec registry_api pytest tests/ -v
+
+
+tf-init:
+	source .env && cd infra/aws && rm -rf .terraform && rm -rf .terraform.lock.hcl && rm -rf terraform.tfstate && terraform init
+
+
+tf-plan:
+	source .env && cd infra/aws && terraform plan
+
+tf-apply:
+	source .env && cd infra/aws && terraform apply
 
 # Check Commands
 check-env:

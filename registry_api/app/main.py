@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     async def health() -> dict:
         """Health check endpoint."""
-        return {"status": "ok"}
+        return {"status": "ok", "version": "2.0"}
 
     # Global exception handler
     @app.exception_handler(Exception)

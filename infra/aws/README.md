@@ -1,33 +1,14 @@
 # AWS Glue Schema Registry
 
-Terraform configuration for AWS Glue Schema Registry with data contracts.
+Terraform configuration for AWS Glue Schema Registry.
 
-## Files
-
-- `main.tf` - Creates Glue Schema Registry and schemas
-- `variables.tf` - Input variables
-- `terraform.tfvars` - Variable values
-- `backend.tf` - Remote state configuration (optional)
-
-## Resources Created
-
-### AWS Glue Schema Registry
-- Central registry to manage all data schemas
-- Supports versioning and schema evolution
-- Integrates with AWS Glue, Lambda, Kinesis, etc.
-
-### User Schema
-- AVRO format schema for user data
-- Backward compatible schema evolution
-- Includes fields: user_name, email, date_of_birth
-
-## Usage
+## Setup
 
 ### Prerequisites
 
-Ensure AWS credentials are configured. Choose one method:
+Configure AWS credentials (choose one):
 
-**Option A: AWS CLI (Recommended)**
+**Option A: AWS CLI**
 ```bash
 aws configure
 ```
@@ -39,24 +20,47 @@ export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_REGION=us-east-1
 ```
 
-**Option C: .env file**
+**Option C: .env File**
 ```bash
 source ../../.env
 ```
 
-### 1. Initialize
+### Deploy
 
 ```bash
-cd infra/aws
+# Initialize
 terraform init
+
+# Plan
+terraform plan
+
+# Apply
+terraform apply
 ```
 
-### 2. Create Variables File (Optional)
+## Configuration
 
-Auto-load variables without passing flags:
+### Variables
 
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_region` | us-east-1 | AWS region |
+| `registry_name` | schema-registry | Registry name |
+| `registry_description` | Schema Registry for data contracts | Description |
+| `common_tags` | See tfvars | Resource tags |
+
+### Set Variables
+
+**Option 1: terraform.tfvars** (auto-loaded)
+```hcl
+aws_region      = "us-east-1"
+registry_name   = "schema-registry"
+registry_description = "Schema Registry for data contracts"
+```
+
+**Option 2: terraform.auto.tfvars** (overrides tfvars)
 ```bash
-cat > terraform.auto.tfvars << EOF
+cat > terraform.auto.tfvars << 'EOF'
 aws_region = "us-east-1"
 registry_name = "schema-registry"
 registry_description = "Schema Registry for data contracts"
@@ -68,135 +72,141 @@ common_tags = {
 EOF
 ```
 
-Or use existing `terraform.tfvars`:
-
+**Option 3: Environment Variables**
 ```bash
-# Just run Terraform normally - variables load automatically
-```
-
-### 3. Plan
-
-```bash
-terraform plan
-```
-
-Or with specific variables:
-
-```bash
-terraform plan \
-  -var="aws_region=us-east-1" \
-  -var="registry_name=my-registry"
-```
-
-### 4. Deploy
-
-```bash
+source ../../.env
 terraform apply
 ```
 
-Or with specific variables:
-
+**Option 4: Command-line**
 ```bash
-terraform apply \
+terraform plan \
   -var="aws_region=us-east-1" \
-  -var="registry_name=my-registry"
+  -var="registry_name=schema-registry"
 ```
 
-### 5. View Outputs
+## Files
 
-```bash
-terraform output
-```
+| File | Purpose |
+|------|---------|
+| `main.tf` | Schema Registry resource |
+| `variables.tf` | Input variable definitions |
+| `outputs.tf` | Output values |
+| `terraform.tfvars` | Default variable values |
+| `backend.tf` | Remote state config (optional) |
 
-Get specific output:
-
-```bash
-terraform output schema_registry_arn
-```
-
-## Terraform Workflow
-
-### Full Workflow with Environment Variables
+## Workflow
 
 ```bash
 # From project root
 source .env
-
-# Navigate to infra
 cd infra/aws
 
 # Initialize
 terraform init
 
-# Plan and apply
+# Plan
 terraform plan
+
+# Apply
 terraform apply -auto-approve
 
 # View outputs
 terraform output
 ```
 
-### Destroy Resources
-
-```bash
-cd infra/aws
-terraform destroy
-```
-
-Confirm the destruction by typing `yes`.
-
-## Uploading Contracts
-
-After creating the registry and getting outputs, you can register schemas:
-
-```bash
-aws glue put-schema-version \
-  --registry-id RegistryName=schema-registry \
-  --schema-name user-schema \
-  --data-format AVRO \
-  --compatibility BACKWARD \
-  --schema-definition file://contracts/user_contract.json
-```
-
-Or use the Python SDK:
-
-```python
-import boto3
-import json
-
-glue = boto3.client('glue', region_name='us-east-1')
-
-with open('contracts/user_contract.json', 'r') as f:
-    schema_def = f.read()
-
-response = glue.put_schema_version(
-    RegistryId={'RegistryName': 'schema-registry'},
-    SchemaName='user-schema',
-    DataFormat='AVRO',
-    Compatibility='BACKWARD',
-    SchemaDefinition=schema_def
-)
-
-print(f"Schema Version: {response['VersionNumber']}")
-```
-
-## Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `aws_region` | us-east-1 | AWS region for resources |
-| `registry_name` | schema-registry | Name of the registry |
-| `registry_description` | Schema Registry for data contracts | Registry description |
-| `common_tags` | See tfvars | Tags for all resources |
-
 ## Outputs
 
 ```bash
-terraform output
+terraform output schema_registry_arn
+terraform output schema_registry_name
 ```
 
-Returns:
-- `schema_registry_arn` - ARN of the registry
-- `schema_registry_name` - Name of the registry
-- `user_schema_arn` - ARN of user schema
-- `user_schema_version` - Version ID of schema
+## Cleanup
+
+```bash
+terraform destroy
+```
+
+Confirm by typing `yes`.
+
+## Remote State (S3 Backend)
+
+Enable S3 backend for team collaboration:
+
+1. Create S3 bucket and DynamoDB table
+2. Uncomment backend block in `backend.tf`
+3. Run `terraform init` to migrate
+
+```hcl
+# backend.tf
+terraform {
+  backend "s3" {
+    bucket         = "my-terraform-state"
+    key            = "schema-registry/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}
+```
+
+## Commands
+
+```bash
+# Validate syntax
+terraform validate
+
+# Format files
+terraform fmt
+
+# View current state
+terraform show
+
+# Refresh state from AWS
+terraform refresh
+
+# Targeted apply
+terraform apply -target=aws_glue_schema_registry.main
+
+# Debug
+export TF_LOG=DEBUG
+terraform plan
+```
+
+## Troubleshooting
+
+### AWS credentials error
+```bash
+# Check AWS CLI
+aws sts get-caller-identity
+
+# Or source .env
+source ../../.env
+terraform init
+```
+
+### State lock
+```bash
+terraform force-unlock <LOCK_ID>
+```
+
+### Permission denied
+Ensure IAM user/role has permissions:
+- `glue:CreateRegistry`
+- `glue:CreateSchema`
+- `glue:GetRegistry`
+- `glue:GetSchema`
+- `glue:TagResource`
+
+### Already exists
+If registry already exists, import it:
+```bash
+terraform import aws_glue_schema_registry.main schema-registry
+```
+
+## See Also
+
+- [Infrastructure Setup](../README.md)
+- [API Documentation](../../registry_api/README.md)
+- [Main README](../../README.md)

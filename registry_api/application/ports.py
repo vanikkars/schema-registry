@@ -64,6 +64,18 @@ class SchemaRegistryPort(ABC):
         """
         pass
 
+    @abstractmethod
+    def list_all_schema_versions(self, schema_name: str) -> list:
+        """Get all versions of a schema with their details.
+
+        Args:
+            schema_name: Name of the schema
+
+        Returns:
+            List of schema version details, or empty list if not found
+        """
+        pass
+
 
 class TableCatalogPort(ABC):
     """Output port for data table catalog operations (Iceberg tables in Glue)."""

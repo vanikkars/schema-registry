@@ -94,8 +94,53 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                     "SchemaName": schema_name,
                 }
             )
-            # Schema exists - just return its ARN
-            response = existing
+            # Schema exists - check if we need to register a new version
+            try:
+                # Get current schema version to compare
+                current_version_resp = self.glue.get_schema_version(
+                    SchemaId={
+                        "RegistryName": self.registry_name,
+                        "SchemaName": schema_name,
+                    },
+                    SchemaVersionNumber={"LatestVersion": True},
+                )
+                current_schema_def = current_version_resp.get("SchemaDefinition", "")
+
+                # Only register new version if definition is different
+                logger.info(f"Current schema def length: {len(current_schema_def)}, New schema def length: {len(schema_definition)}")
+                if current_schema_def != schema_definition:
+                    logger.info(f"Schema definition changed for {schema_name}, registering new version")
+                    version_result = self.glue.register_schema_version(
+                        SchemaId={
+                            "RegistryName": self.registry_name,
+                            "SchemaName": schema_name,
+                        },
+                        SchemaDefinition=schema_definition,
+                    )
+                    logger.info(f"Registered new version {version_result.get('VersionNumber')} for schema {schema_name}")
+                else:
+                    logger.info(f"Schema definition unchanged for {schema_name}, not registering new version")
+
+                # Update schema tags (metadata)
+                schema_arn = existing.get("SchemaArn", "")
+                if schema_arn and tags:
+                    try:
+                        self.glue.tag_resource(ResourceArn=schema_arn, TagsToAdd=tags)
+                        logger.info(f"Updated tags for schema {schema_name}")
+                    except Exception as tag_err:
+                        logger.warning(f"Could not update tags for {schema_name}: {tag_err}")
+
+                # Fetch updated schema info
+                response = self.glue.get_schema(
+                    SchemaId={
+                        "RegistryName": self.registry_name,
+                        "SchemaName": schema_name,
+                    }
+                )
+            except Exception as e:
+                # Error occurred, return existing schema
+                logger.warning(f"Error while processing schema {schema_name}: {str(e)}")
+                response = existing
         except self.glue.exceptions.EntityNotFoundException:
             # Create new schema
             response = self.glue.create_schema(
@@ -142,6 +187,70 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
             )
             return response.get("Schemas", [])
         except self.glue.exceptions.EntityNotFoundException:
+            return []
+
+    def list_all_schema_versions(self, schema_name: str) -> list:
+        """Get all versions of a schema with their details and metadata.
+
+        Args:
+            schema_name: Name of the schema
+
+        Returns:
+            List of schema version details including metadata, or empty list if not found
+        """
+        try:
+            versions_resp = self.glue.list_schema_versions(
+                SchemaId={
+                    "RegistryName": self.registry_name,
+                    "SchemaName": schema_name,
+                }
+            )
+            logger.info(f"list_schema_versions response: {versions_resp}")
+
+            versions = []
+            for version_item in versions_resp.get("Schemas", []):
+                version_num = version_item.get("VersionNumber")
+                created_time = version_item.get("CreatedTime")
+                status = version_item.get("Status", "AVAILABLE")
+
+                # Get full schema definition and metadata for each version
+                try:
+                    version_resp = self.glue.get_schema_version(
+                        SchemaId={
+                            "RegistryName": self.registry_name,
+                            "SchemaName": schema_name,
+                        },
+                        SchemaVersionNumber={"VersionNumber": version_num},
+                    )
+                    schema_def = version_resp.get("SchemaDefinition", "")
+
+                    # Parse schema definition
+                    schema_content = None
+                    if schema_def:
+                        import json
+                        try:
+                            schema_content = json.loads(schema_def)
+                        except Exception:
+                            schema_content = schema_def
+
+                    versions.append({
+                        "version": version_num,
+                        "status": status,
+                        "created_time": created_time,
+                        "schema": schema_content,
+                    })
+                except Exception as e:
+                    logger.warning(f"Could not fetch full details for version {version_num}: {e}")
+                    versions.append({
+                        "version": version_num,
+                        "status": status,
+                        "created_time": created_time,
+                        "schema": None,
+                    })
+
+            return versions
+        except Exception as e:
+            logger.warning(f"Could not list schema versions for {schema_name}: {e}")
             return []
 
     def get_schema_versions(self, schema_name: str) -> dict:

@@ -23,6 +23,7 @@ def contract_to_avro(contract: DataContract) -> str:
             field["doc"] = col.description
         if col.nullable:
             field["type"] = ["null", field["type"]]
+            field["default"] = None
         fields.append(field)
 
     # Build comprehensive documentation including metadata

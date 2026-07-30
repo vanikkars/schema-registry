@@ -122,59 +122,19 @@ class ListSchemasUseCase:
 
 
 class GetSchemaUseCase:
-    """Use case for retrieving a specific schema's details."""
+    """Use case for retrieving a specific schema's details including latest version metadata."""
 
     def __init__(self, schema_registry: SchemaRegistryPort):
         self.schema_registry = schema_registry
 
     def execute(self, schema_name: str) -> dict:
-        """Get details of a specific schema.
+        """Get details of a specific schema with latest version metadata.
 
         Args:
             schema_name: Name of the schema
 
         Returns:
-            Schema details dict
-
-        Raises:
-            SchemaNotFoundError: If schema does not exist
-        """
-        schema = self.schema_registry.get_schema(schema_name)
-
-        if not schema:
-            raise SchemaNotFoundError(schema_name)
-
-        return {
-            "name": schema.get("SchemaName"),
-            "arn": schema.get("SchemaArn"),
-            "description": schema.get("Description", ""),
-            "status": schema.get("SchemaStatus", "AVAILABLE"),
-            "data_format": schema.get("DataFormat", "AVRO"),
-            "compatibility": schema.get("Compatibility", "BACKWARD"),
-            "latest_version": schema.get("LatestSchemaVersion", 0),
-            "next_version": schema.get("NextSchemaVersion", 0),
-            "checkpoint": schema.get("SchemaCheckpoint", ""),
-            "created_time": schema.get("CreatedTime"),
-            "updated_time": schema.get("UpdatedTime"),
-            "registry_name": schema.get("RegistryName"),
-            "registry_arn": schema.get("RegistryArn"),
-        }
-
-
-class GetSchemaVersionsUseCase:
-    """Use case for retrieving version information for a schema."""
-
-    def __init__(self, schema_registry: SchemaRegistryPort):
-        self.schema_registry = schema_registry
-
-    def execute(self, schema_name: str) -> dict:
-        """Get version information for a schema.
-
-        Args:
-            schema_name: Name of the schema
-
-        Returns:
-            Schema version details
+            Schema details dict with metadata fields
 
         Raises:
             SchemaNotFoundError: If schema does not exist
@@ -184,7 +144,61 @@ class GetSchemaVersionsUseCase:
         if not version_info:
             raise SchemaNotFoundError(schema_name)
 
-        return version_info
+        return {
+            "name": version_info.get("schema_name"),
+            "arn": version_info.get("arn"),
+            "description": version_info.get("description", ""),
+            "status": version_info.get("status", "AVAILABLE"),
+            "data_format": version_info.get("data_format", "AVRO"),
+            "compatibility": version_info.get("compatibility", "BACKWARD"),
+            "latest_version": version_info.get("latest_version", 0),
+            "next_version": version_info.get("next_version", 0),
+            "checkpoint": version_info.get("checkpoint", ""),
+            "created_time": version_info.get("created_time"),
+            "updated_time": version_info.get("updated_time"),
+            "metadata": version_info.get("metadata", {}),
+            "schema": version_info.get("schema"),
+        }
+
+
+class GetSchemaVersionsUseCase:
+    """Use case for retrieving all version information for a schema including metadata."""
+
+    def __init__(self, schema_registry: SchemaRegistryPort):
+        self.schema_registry = schema_registry
+
+    def execute(self, schema_name: str) -> dict:
+        """Get all versions of a schema with metadata.
+
+        Args:
+            schema_name: Name of the schema
+
+        Returns:
+            Dict with schema info and list of all versions with their details and metadata
+
+        Raises:
+            SchemaNotFoundError: If schema does not exist
+        """
+        # Get latest version info for schema metadata
+        latest_info = self.schema_registry.get_schema_versions(schema_name)
+
+        if not latest_info:
+            raise SchemaNotFoundError(schema_name)
+
+        # Get all versions
+        all_versions = self.schema_registry.list_all_schema_versions(schema_name)
+
+        return {
+            "schema_name": latest_info.get("schema_name"),
+            "latest_version": latest_info.get("latest_version", 0),
+            "next_version": latest_info.get("next_version", 0),
+            "arn": latest_info.get("arn"),
+            "description": latest_info.get("description", ""),
+            "data_format": latest_info.get("data_format", "AVRO"),
+            "compatibility": latest_info.get("compatibility", "BACKWARD"),
+            "metadata": latest_info.get("metadata", {}),
+            "versions": all_versions,
+        }
 
 
 class GetSchemaVersionUseCase:
@@ -194,14 +208,14 @@ class GetSchemaVersionUseCase:
         self.schema_registry = schema_registry
 
     def execute(self, schema_name: str, version: str) -> dict:
-        """Get a specific version of a schema.
+        """Get a specific version of a schema with metadata.
 
         Args:
             schema_name: Name of the schema
             version: Version string
 
         Returns:
-            Schema version details with full schema definition
+            Schema version details with full schema definition and metadata
 
         Raises:
             SchemaNotFoundError: If schema does not exist
@@ -224,7 +238,20 @@ class GetSchemaVersionUseCase:
         if requested_version != latest_version:
             raise VersionNotFoundError(schema_name, version, latest_version)
 
-        return version_info
+        return {
+            "schema_name": version_info.get("schema_name"),
+            "version": latest_version,
+            "arn": version_info.get("arn"),
+            "description": version_info.get("description", ""),
+            "status": version_info.get("status", "AVAILABLE"),
+            "data_format": version_info.get("data_format", "AVRO"),
+            "compatibility": version_info.get("compatibility", "BACKWARD"),
+            "created_time": version_info.get("created_time"),
+            "updated_time": version_info.get("updated_time"),
+            "checkpoint": version_info.get("checkpoint", ""),
+            "metadata": version_info.get("metadata", {}),
+            "schema": version_info.get("schema"),
+        }
 
 
 class DeleteSchemaUseCase:

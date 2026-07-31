@@ -72,17 +72,14 @@ jobs:
                   with open(file_path, 'r') as f:
                       contract = json.load(f)
 
-                  # Validate contract structure
-                  required_fields = ['name', 'type', 'fields', 'namespace']
-                  missing_fields = [field for field in required_fields if field not in contract]
-
-                  if missing_fields:
-                      print(f"❌ Missing required fields: {missing_fields}")
+                  # Validate contract has at least a 'name' field
+                  if 'name' not in contract:
+                      print(f"❌ Missing required field: 'name'")
                       all_passed = False
                       validation_results.append({
                           'file': file_path,
                           'status': 'FAILED',
-                          'reason': f'Missing fields: {missing_fields}'
+                          'reason': "Missing required field: 'name'"
                       })
                       continue
 

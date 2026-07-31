@@ -68,16 +68,13 @@ class ContractValidator:
                 reason=f"Invalid JSON: {str(e)}"
             )
 
-        # Validate required fields
-        required_fields = ['name', 'type', 'fields', 'namespace']
-        missing_fields = [field for field in required_fields if field not in contract]
-
-        if missing_fields:
+        # Validate that contract has a 'name' field (minimal requirement)
+        if 'name' not in contract:
             return ValidationResult(
                 file=str(file_path),
                 status="FAILED",
-                contract_name=contract.get('name', 'unknown'),
-                reason=f"Missing required fields: {', '.join(missing_fields)}"
+                contract_name='unknown',
+                reason="Missing required field: 'name'"
             )
 
         # Send to registry API

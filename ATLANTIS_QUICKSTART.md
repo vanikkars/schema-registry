@@ -17,18 +17,44 @@ If Any Invalid → Block Merge + Comment with Errors ❌
 
 ## ⚡ 5-Minute Setup
 
-### Step 1: Create GitHub Secrets
+### Step 1: Expose Local API with ngrok
 
-1. Go to your GitHub repository
-2. **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Add these:
+Since GitHub Actions runs in the cloud and cannot reach `localhost:8000`, you need to expose your API:
 
-| Name | Value | Required? |
-|------|-------|-----------|
-| `REGISTRY_API_URL` | `http://localhost:8000` or your API URL | Optional (defaults to localhost) |
+```bash
+# Terminal 1: Start your API
+make docker-up
 
-### Step 2: Files Already Added
+# Terminal 2: Expose with ngrok
+ngrok http 8000
+
+# Output will show:
+# Forwarding    https://abc123def456.ngrok.io -> http://localhost:8000
+```
+
+**See [docs/NGROK_SETUP.md](docs/NGROK_SETUP.md) for detailed ngrok setup**
+
+### Step 2: Create GitHub Secret
+
+1. Copy the ngrok HTTPS URL (e.g., `https://abc123def456.ngrok.io`)
+2. Go to your GitHub repository
+3. **Settings** → **Secrets and variables** → **Actions**
+4. Click **New repository secret**
+5. Add:
+
+| Name | Value |
+|------|-------|
+| `REGISTRY_API_URL` | Paste your ngrok URL here |
+
+Example:
+```
+Name: REGISTRY_API_URL
+Value: https://abc123def456.ngrok.io
+```
+
+> **Note:** Free ngrok generates a new URL each time you restart. If it changes, just update the GitHub secret with the new URL.
+
+### Step 3: Files Already Added
 
 The workflow is ready to go! These files were added:
 
@@ -40,12 +66,13 @@ scripts/
 └── validate-contracts.py              ← Validation script
 
 docs/
-└── ATLANTIS_SETUP.md                 ← Full documentation
+├── ATLANTIS_SETUP.md                 ← Full documentation
+└── NGROK_SETUP.md                    ← ngrok guide
 
 Makefile                               ← Added validation commands
 ```
 
-### Step 3: Test Locally
+### Step 4: Test Locally
 
 Before pushing to GitHub:
 
@@ -154,9 +181,19 @@ python scripts/validate-contracts.py --registry-url https://api.example.com
 - Check "Actions" tab in repository
 
 ### "Cannot connect to registry API"
-- Ensure API is running: `make docker-up`
-- Check `REGISTRY_API_URL` secret is set correctly
-- For local dev, expose API with ngrok: `ngrok http 8000`
+- **Most common:** ngrok is not running
+  ```bash
+  # Terminal 1: Ensure API is running
+  make docker-up
+  
+  # Terminal 2: Start ngrok
+  ngrok http 8000
+  ```
+- Check `REGISTRY_API_URL` secret matches ngrok URL exactly
+- Verify ngrok URL is HTTPS (not HTTP)
+- If ngrok URL changed, update GitHub secret
+
+**See [docs/NGROK_SETUP.md](docs/NGROK_SETUP.md#troubleshooting) for detailed help**
 
 ### Contract validation fails
 - Run locally: `python scripts/validate-contracts.py`
@@ -169,6 +206,12 @@ python scripts/validate-contracts.py --registry-url https://api.example.com
 - Check for merge conflicts
 - Verify all status checks passed
 - Check branch protection rules
+
+### ngrok URL keeps changing
+- Free ngrok generates new URL each restart
+- Update GitHub secret when URL changes
+- Or upgrade to ngrok Pro ($5/mo) for static URL
+- See [docs/NGROK_SETUP.md](docs/NGROK_SETUP.md#option-1-ngrok-pro-static-url)
 
 ## 📚 Full Documentation
 

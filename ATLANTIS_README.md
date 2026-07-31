@@ -5,6 +5,7 @@ Automatic contract validation and PR merging for your schema registry, similar t
 ## Quick Links
 
 - **Getting Started:** [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md) ← Start here!
+- **ngrok Setup (Important!):** [`docs/NGROK_SETUP.md`](docs/NGROK_SETUP.md) ← How to expose local API
 - **Implementation Details:** [`ATLANTIS_IMPLEMENTATION.md`](ATLANTIS_IMPLEMENTATION.md)
 - **Full Documentation:** [`docs/ATLANTIS_SETUP.md`](docs/ATLANTIS_SETUP.md)
 - **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
@@ -45,12 +46,13 @@ scripts/
 
 docs/
 ├── ATLANTIS_SETUP.md                      ← Full documentation
+├── NGROK_SETUP.md                         ← ngrok setup guide ⭐ Important!
 └── ARCHITECTURE.md                        ← System design & diagrams
 
 Root:
+├── ATLANTIS_README.md                     ← This file (overview)
 ├── ATLANTIS_QUICKSTART.md                 ← 5-minute setup guide
-├── ATLANTIS_IMPLEMENTATION.md             ← Technical overview
-└── ATLANTIS_README.md                     ← This file
+└── ATLANTIS_IMPLEMENTATION.md             ← Technical overview
 
 .git/
 └── hooks/pre-commit                       ← Git validation hook
@@ -63,18 +65,39 @@ Makefile (updated)
 
 ## Quick Start
 
-### 1. Install Dependencies (one-time)
+### 1. Expose Local API with ngrok (Important!)
+
+GitHub Actions cannot reach `localhost:8000`. Use ngrok to expose your API:
+
+```bash
+# Terminal 1: Start API
+make docker-up
+
+# Terminal 2: Expose with ngrok
+ngrok http 8000
+
+# Output:
+# Forwarding    https://abc123def456.ngrok.io -> http://localhost:8000
+```
+
+**Full guide:** See [docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)
+
+### 2. Set GitHub Secret
+
+Copy the ngrok URL and add it to GitHub:
+
+1. Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret**
+3. Name: `REGISTRY_API_URL`
+4. Value: Paste your ngrok URL (e.g., `https://abc123def456.ngrok.io`)
+5. Click **Add secret**
+
+### 3. Install Dependencies (one-time)
 ```bash
 pip install requests
 ```
 
-### 2. Test Locally (optional)
-```bash
-make docker-up
-python scripts/validate-contracts.py
-```
-
-### 3. Create a PR
+### 4. Create a PR
 1. Create feature branch: `git checkout -b add-contract`
 2. Add/modify contract in `contracts/` folder
 3. Push and create PR on GitHub
@@ -95,9 +118,12 @@ python scripts/validate-contracts.py
 
 ## Configuration
 
-### GitHub Secrets (Optional)
+### GitHub Secrets (Required for Local Development)
 Set in repository settings:
-- `REGISTRY_API_URL` → Your API endpoint (default: `http://localhost:8000`)
+- `REGISTRY_API_URL` → **ngrok URL** (e.g., `https://abc123def456.ngrok.io`)
+  - Free ngrok generates new URL each restart; update secret when it changes
+  - ngrok Pro ($5/mo) provides static URL
+  - See [docs/NGROK_SETUP.md](docs/NGROK_SETUP.md) for details
 
 ### Enable Auto-Merge (Optional)
 Repository → Settings → Pull requests → ✅ Allow auto-merge
@@ -160,6 +186,7 @@ See [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md#-troubleshooting) for more
 ## Documentation
 
 - **Quick Start** (5 min) → [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md)
+- **ngrok Setup** (local API) → [`docs/NGROK_SETUP.md`](docs/NGROK_SETUP.md) ⭐ **Start here for local dev!**
 - **Implementation** (technical) → [`ATLANTIS_IMPLEMENTATION.md`](ATLANTIS_IMPLEMENTATION.md)
 - **Full Setup** (comprehensive) → [`docs/ATLANTIS_SETUP.md`](docs/ATLANTIS_SETUP.md)
 - **Architecture** (system design) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)

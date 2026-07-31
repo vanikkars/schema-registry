@@ -13,7 +13,23 @@ When you open a pull request that modifies contracts in the `contracts/` folder:
 
 ## Setup
 
-### 1. GitHub Repository Secrets
+### 1. Expose Local API (if running locally)
+
+GitHub Actions runs in the cloud and cannot reach `localhost:8000`. Use **ngrok** to expose your local API:
+
+```bash
+# Terminal 1: Start API
+make docker-up
+
+# Terminal 2: Expose with ngrok
+ngrok http 8000
+
+# Output: https://abc123def456.ngrok.io -> http://localhost:8000
+```
+
+**Full ngrok guide:** See [NGROK_SETUP.md](NGROK_SETUP.md)
+
+### 2. GitHub Repository Secrets
 
 Set up the registry API URL in your GitHub repository settings.
 
@@ -22,9 +38,11 @@ Set up the registry API URL in your GitHub repository settings.
 2. Settings → Secrets and variables → Actions
 3. Click "New repository secret"
 4. Name: `REGISTRY_API_URL`
-5. Value: The URL where your registry API runs (e.g., `https://api.example.com` or `http://localhost:8000`)
+5. Value: 
+   - **Local dev:** ngrok URL (e.g., `https://abc123def456.ngrok.io`)
+   - **Production:** Your deployed API URL (e.g., `https://api.example.com`)
 
-If not set, the workflow defaults to `http://localhost:8000`.
+If not set, the workflow defaults to `http://localhost:8000` (won't work for cloud-based workflows).
 
 ### 2. Enable Auto-Merge (Optional)
 

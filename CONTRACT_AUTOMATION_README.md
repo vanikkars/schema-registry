@@ -1,13 +1,13 @@
-# 🚀 Atlantis-like Schema Registry Automation
+# 🚀 Contract Automation for Schema Registry
 
-Automatic contract validation and PR merging for your schema registry, similar to [Atlantis](https://www.runatlantis.io/).
+Automatic contract validation and PR merging using GitHub Actions and ngrok for your schema registry.
 
 ## Quick Links
 
-- **Getting Started:** [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md) ← Start here!
+- **Getting Started:** [`CONTRACT_AUTOMATION_QUICKSTART.md`](CONTRACT_AUTOMATION_QUICKSTART.md) ← Start here!
 - **ngrok Setup (Important!):** [`docs/NGROK_SETUP.md`](docs/NGROK_SETUP.md) ← How to expose local API
-- **Implementation Details:** [`ATLANTIS_IMPLEMENTATION.md`](ATLANTIS_IMPLEMENTATION.md)
-- **Full Documentation:** [`docs/ATLANTIS_SETUP.md`](docs/ATLANTIS_SETUP.md)
+- **Implementation Details:** [`CONTRACT_AUTOMATION_IMPLEMENTATION.md`](CONTRACT_AUTOMATION_IMPLEMENTATION.md)
+- **Full Documentation:** [`docs/CONTRACT_AUTOMATION_SETUP.md`](docs/CONTRACT_AUTOMATION_SETUP.md)
 - **Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## What It Does
@@ -37,22 +37,22 @@ If Any Invalid → Block Merge + Comment ❌
 
 ```
 .github/workflows/
-└── atlantis-schema-validation.yml         ← Main GitHub Actions workflow
+└── contract-validation-workflow.yml       ← Main GitHub Actions workflow
 
 scripts/
 ├── validate-contracts.py                  ← Standalone validation script
-├── setup-atlantis.sh                      ← Installation script
+├── setup-contract-automation.sh           ← Installation script
 └── requirements.txt                       ← Python dependencies
 
 docs/
-├── ATLANTIS_SETUP.md                      ← Full documentation
+├── CONTRACT_AUTOMATION_SETUP.md            ← Full documentation
 ├── NGROK_SETUP.md                         ← ngrok setup guide ⭐ Important!
 └── ARCHITECTURE.md                        ← System design & diagrams
 
 Root:
-├── ATLANTIS_README.md                     ← This file (overview)
-├── ATLANTIS_QUICKSTART.md                 ← 5-minute setup guide
-└── ATLANTIS_IMPLEMENTATION.md             ← Technical overview
+├── CONTRACT_AUTOMATION_README.md           ← This file (overview)
+├── CONTRACT_AUTOMATION_QUICKSTART.md       ← 5-minute setup guide
+└── CONTRACT_AUTOMATION_IMPLEMENTATION.md   ← Technical overview
 
 .git/
 └── hooks/pre-commit                       ← Git validation hook
@@ -185,10 +185,10 @@ See [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md#-troubleshooting) for more
 
 ## Documentation
 
-- **Quick Start** (5 min) → [`ATLANTIS_QUICKSTART.md`](ATLANTIS_QUICKSTART.md)
+- **Quick Start** (5 min) → [`CONTRACT_AUTOMATION_QUICKSTART.md`](CONTRACT_AUTOMATION_QUICKSTART.md)
 - **ngrok Setup** (local API) → [`docs/NGROK_SETUP.md`](docs/NGROK_SETUP.md) ⭐ **Start here for local dev!**
-- **Implementation** (technical) → [`ATLANTIS_IMPLEMENTATION.md`](ATLANTIS_IMPLEMENTATION.md)
-- **Full Setup** (comprehensive) → [`docs/ATLANTIS_SETUP.md`](docs/ATLANTIS_SETUP.md)
+- **Implementation** (technical) → [`CONTRACT_AUTOMATION_IMPLEMENTATION.md`](CONTRACT_AUTOMATION_IMPLEMENTATION.md)
+- **Full Setup** (comprehensive) → [`docs/CONTRACT_AUTOMATION_SETUP.md`](docs/CONTRACT_AUTOMATION_SETUP.md)
 - **Architecture** (system design) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ## Next Steps

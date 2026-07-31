@@ -1,6 +1,6 @@
-# Atlantis-like Schema Registry Automation
+# Contract Automation for Schema Registry
 
-This document explains how to set up automatic schema validation and PR merging, similar to [Atlantis](https://www.runatlantis.io/).
+This document explains how to set up automatic schema validation and PR merging using GitHub Actions and ngrok.
 
 ## Overview
 

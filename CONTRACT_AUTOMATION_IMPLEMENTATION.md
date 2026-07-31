@@ -1,13 +1,13 @@
-# Atlantis Implementation for Schema Registry
+# Contract Automation Implementation for Schema Registry
 
 ## Overview
 
-This implementation provides **automatic contract validation and PR merging** similar to [Atlantis](https://www.runatlantis.io/), but specifically for your schema registry system.
+This implementation provides **automatic contract validation and PR merging** using GitHub Actions and ngrok for your schema registry system.
 
 ## What Was Created
 
 ### 1. GitHub Actions Workflow
-**File:** `.github/workflows/atlantis-schema-validation.yml`
+**File:** `.github/workflows/contract-validation-workflow.yml`
 
 Automatically triggered when PRs modify contracts in the `contracts/` folder.
 
@@ -65,7 +65,7 @@ Comprehensive setup and configuration guide:
 
 ### 4. Helper Scripts
 
-#### `scripts/setup-atlantis.sh`
+#### `scripts/setup-contract-automation.sh`
 Installation and verification script that:
 - Makes scripts executable
 - Enables pre-commit hooks
@@ -103,12 +103,12 @@ requests>=2.31.0
 Pull Request Created with Contract Changes
          ↓
 GitHub Actions Triggers
-(atlantis-schema-validation.yml)
+(contract-validation-workflow.yml)
          ↓
 For Each Changed Contract File:
   ├─ Parse JSON
   ├─ Validate Schema
-  ├─ POST to /api/v1/schemas
+  ├─ POST to /api/v1/schemas via ngrok
   └─ Collect Result
          ↓
 Post Comment on PR (Results Table)
@@ -130,7 +130,7 @@ Check Overall Status:
 │                  │                        │
 │  ┌──────────────┴────────────────────┐  │
 │  │ GitHub Actions Workflow            │  │
-│  │ atlantis-schema-validation.yml     │  │
+│  │ contract-validation-workflow.yml   │  │
 │  └──────────────┬────────────────────┘  │
 │                 │                        │
 └─────────────────┼────────────────────────┘
@@ -304,10 +304,10 @@ Monitor in GitHub → Actions tab.
 schema-registry/
 ├── .github/
 │   └── workflows/
-│       └── atlantis-schema-validation.yml      ← Main workflow
+│       └── contract-validation-workflow.yml    ← Main workflow
 ├── scripts/
 │   ├── validate-contracts.py                   ← Validation script
-│   ├── setup-atlantis.sh                       ← Setup script
+│   ├── setup-contract-automation.sh            ← Setup script
 │   └── requirements.txt                        ← Dependencies
 ├── .git/
 │   └── hooks/
@@ -328,7 +328,7 @@ schema-registry/
 
 2. **Run setup script:**
    ```bash
-   bash scripts/setup-atlantis.sh
+   bash scripts/setup-contract-automation.sh
    ```
 
 3. **Test locally:**

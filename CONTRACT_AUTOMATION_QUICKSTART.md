@@ -1,6 +1,6 @@
-# Schema Registry Atlantis Setup - Quick Start
+# Schema Registry Contract Automation - Quick Start
 
-This guide sets up **automatic contract validation and PR merging** similar to [Atlantis](https://www.runatlantis.io/).
+This guide sets up **automatic contract validation and PR merging** using GitHub Actions and ngrok.
 
 ## 🎯 What This Does
 
@@ -60,13 +60,13 @@ The workflow is ready to go! These files were added:
 
 ```
 .github/workflows/
-└── atlantis-schema-validation.yml    ← Main workflow
+└── contract-validation-workflow.yml  ← Main workflow
 
 scripts/
 └── validate-contracts.py              ← Validation script
 
 docs/
-├── ATLANTIS_SETUP.md                 ← Full documentation
+├── CONTRACT_AUTOMATION_SETUP.md       ← Full documentation
 └── NGROK_SETUP.md                    ← ngrok guide
 
 Makefile                               ← Added validation commands
@@ -215,7 +215,7 @@ python scripts/validate-contracts.py --registry-url https://api.example.com
 
 ## 📚 Full Documentation
 
-See [docs/ATLANTIS_SETUP.md](docs/ATLANTIS_SETUP.md) for:
+See [docs/CONTRACT_AUTOMATION_SETUP.md](docs/CONTRACT_AUTOMATION_SETUP.md) for:
 - Advanced configuration
 - CI/CD integration
 - Monitoring & alerts
@@ -226,12 +226,12 @@ See [docs/ATLANTIS_SETUP.md](docs/ATLANTIS_SETUP.md) for:
 ```
 Contract PR Created
         ↓
-Workflow Starts (detect changes in contracts/)
+GitHub Actions Workflow Starts (detect changes in contracts/)
         ↓
 For Each Contract File:
   ├─ Load JSON
   ├─ Validate schema
-  ├─ POST to /api/v1/schemas
+  ├─ POST to /api/v1/schemas via ngrok
   └─ Check response (200/201 = pass)
         ↓
 Post Comment on PR (results table)

@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test
+.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all
 
 help:
 	@echo "Schema Registry - Make Commands"
@@ -30,13 +30,23 @@ help:
 	@echo "  make schema-detail          - Get schema details (use SCHEMA_NAME=<name>)"
 	@echo "  make health                 - Check API health"
 	@echo ""
+	@echo "Validation Commands (Contract Automation):"
+	@echo "  make validate-contracts     - Validate current contracts (contracts/current/)"
+	@echo "  make validate-contracts-all - Validate all contracts (contracts/all/)"
+	@echo "  make validate-export        - Validate current and export results"
+	@echo "  make validate-export-all    - Validate all and export results"
+	@echo "  make validate-remote        - Validate current contracts against remote API"
+	@echo ""
 
 # Docker Production Commands
 docker-build:
 	docker-compose build
 
+docker-up-build:
+	docker-compose up --build
+
 docker-up:
-	docker-compose up -d
+	docker-compose up
 	@echo "✅ Services started"
 	@echo "📍 API: http://localhost:8000"
 	@echo "📖 Docs: http://localhost:8000/docs"
@@ -85,11 +95,23 @@ run-api:
 	bash registry_api/run.sh
 
 generate:
-	python contracts_management/generate_contract.py
+	@echo "❌ Contract generation moved to static contracts/ folder"
+	@echo "   Add or modify contracts in: contracts/"
 
 test:
 	source .env
 	docker-compose exec registry_api pytest tests/ -v
+
+
+tf-init:
+	source .env && cd infra/aws && rm -rf .terraform && rm -rf .terraform.lock.hcl && rm -rf terraform.tfstate && terraform init
+
+
+tf-plan:
+	source .env && cd infra/aws && terraform plan
+
+tf-apply:
+	source .env && cd infra/aws && terraform apply
 
 # Check Commands
 check-env:
@@ -151,3 +173,31 @@ schema-detail:
 list-all-commands:
 	@echo "All available targets:"
 	@grep -E "^[a-zA-Z_-]+:" Makefile | sed 's/:.*//g' | column
+
+# Contract Validation Commands
+validate-contracts:
+	@echo "🔍 Validating current contracts..."
+	python scripts/validate-contracts.py contracts/current/
+
+validate-contracts-all:
+	@echo "🔍 Validating all contracts..."
+	python scripts/validate-contracts.py contracts/all/
+
+validate-contracts-%:
+	@echo "🔍 Validating contracts in $*..."
+	python scripts/validate-contracts.py contracts/$*
+
+validate-export:
+	@echo "🔍 Validating current contracts and exporting results..."
+	python scripts/validate-contracts.py contracts/current/ --export validation_results.json
+	@echo "✅ Results saved to validation_results.json"
+
+validate-export-all:
+	@echo "🔍 Validating all contracts and exporting results..."
+	python scripts/validate-contracts.py contracts/all/ --export validation_results.json
+	@echo "✅ Results saved to validation_results.json"
+
+validate-remote:
+	@echo "🔍 Validating current contracts against remote API..."
+	@read -p "Enter registry API URL: " url; \
+	python scripts/validate-contracts.py contracts/current/ --registry-url $$url

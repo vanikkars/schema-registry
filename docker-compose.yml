@@ -18,6 +18,8 @@ services:
     env_file:
       - .env
     volumes:
+      # Mount source code for development
+      - ./registry_api:/app/registry_api
       # Mount contracts directory for easy access
       - ./contracts:/app/contracts:ro
       # Mount logs if needed

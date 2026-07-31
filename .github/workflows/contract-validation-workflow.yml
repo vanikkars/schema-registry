@@ -3,8 +3,8 @@ name: Schema Validation & Auto-Merge
 on:
   pull_request:
     paths:
-      - 'contracts/**'
-      - '.github/workflows/atlantis-schema-validation.yml'
+      - 'contracts/current/**'
+      - '.github/workflows/contract-validation-workflow.yml'
     types: [opened, synchronize, reopened]
 
 jobs:
@@ -36,10 +36,10 @@ jobs:
           # Get the merge base to compare against
           MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
 
-          # Find all changed JSON files in contracts folder
-          CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD -- 'contracts/**/*.json' | tr '\n' ' ')
+          # Find all changed JSON files in contracts/current folder only
+          CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD -- 'contracts/current/**/*.json' | tr '\n' ' ')
           echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "Changed contract files: $CHANGED_FILES"
+          echo "Changed contract files (from current folder): $CHANGED_FILES"
 
       - name: Validate contracts against registry API
         id: validation

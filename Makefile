@@ -30,10 +30,12 @@ help:
 	@echo "  make schema-detail          - Get schema details (use SCHEMA_NAME=<name>)"
 	@echo "  make health                 - Check API health"
 	@echo ""
-	@echo "Validation Commands (Atlantis-like):"
-	@echo "  make validate-contracts     - Validate all contracts against registry"
-	@echo "  make validate-export        - Validate and export results to JSON"
-	@echo "  make validate-remote        - Validate against remote API"
+	@echo "Validation Commands (Contract Automation):"
+	@echo "  make validate-contracts     - Validate current contracts (contracts/current/)"
+	@echo "  make validate-contracts-all - Validate all contracts (contracts/all/)"
+	@echo "  make validate-export        - Validate current and export results"
+	@echo "  make validate-export-all    - Validate all and export results"
+	@echo "  make validate-remote        - Validate current contracts against remote API"
 	@echo ""
 
 # Docker Production Commands
@@ -174,19 +176,28 @@ list-all-commands:
 
 # Contract Validation Commands
 validate-contracts:
+	@echo "🔍 Validating current contracts..."
+	python scripts/validate-contracts.py contracts/current/
+
+validate-contracts-all:
 	@echo "🔍 Validating all contracts..."
-	python scripts/validate-contracts.py
+	python scripts/validate-contracts.py contracts/all/
 
 validate-contracts-%:
 	@echo "🔍 Validating contracts in $*..."
 	python scripts/validate-contracts.py contracts/$*
 
 validate-export:
+	@echo "🔍 Validating current contracts and exporting results..."
+	python scripts/validate-contracts.py contracts/current/ --export validation_results.json
+	@echo "✅ Results saved to validation_results.json"
+
+validate-export-all:
 	@echo "🔍 Validating all contracts and exporting results..."
-	python scripts/validate-contracts.py --export validation_results.json
+	python scripts/validate-contracts.py contracts/all/ --export validation_results.json
 	@echo "✅ Results saved to validation_results.json"
 
 validate-remote:
-	@echo "🔍 Validating against remote API..."
+	@echo "🔍 Validating current contracts against remote API..."
 	@read -p "Enter registry API URL: " url; \
-	python scripts/validate-contracts.py --registry-url $$url
+	python scripts/validate-contracts.py contracts/current/ --registry-url $$url

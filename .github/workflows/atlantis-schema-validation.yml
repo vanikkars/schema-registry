@@ -1,0 +1,253 @@
+name: Schema Validation & Auto-Merge
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/atlantis-schema-validation.yml'
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-contracts:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pydantic jsonschema avro-python3
+
+      - name: Find changed contract files
+        id: changed-files
+        run: |
+          # Get the merge base to compare against
+          MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
+
+          # Find all changed JSON files in contracts folder
+          CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD -- 'contracts/**/*.json' | tr '\n' ' ')
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "Changed contract files: $CHANGED_FILES"
+
+      - name: Validate contracts against registry API
+        id: validation
+        env:
+          REGISTRY_API_URL: ${{ secrets.REGISTRY_API_URL || 'http://localhost:8000' }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          import requests
+          from pathlib import Path
+
+          changed_files = "${{ steps.changed-files.outputs.files }}".strip().split()
+          registry_url = "${{ env.REGISTRY_API_URL }}"
+
+          if not changed_files or changed_files == ['']:
+              print("::notice::No contract files changed")
+              sys.exit(0)
+
+          validation_results = []
+          all_passed = True
+
+          for file_path in changed_files:
+              if not file_path.endswith('.json'):
+                  continue
+
+              print(f"\n📋 Validating: {file_path}")
+
+              try:
+                  with open(file_path, 'r') as f:
+                      contract = json.load(f)
+
+                  # Validate contract structure
+                  required_fields = ['name', 'type', 'fields', 'namespace']
+                  missing_fields = [field for field in required_fields if field not in contract]
+
+                  if missing_fields:
+                      print(f"❌ Missing required fields: {missing_fields}")
+                      all_passed = False
+                      validation_results.append({
+                          'file': file_path,
+                          'status': 'FAILED',
+                          'reason': f'Missing fields: {missing_fields}'
+                      })
+                      continue
+
+                  # Send to registry API
+                  print(f"📤 Sending contract '{contract.get('name')}' to registry...")
+
+                  try:
+                      response = requests.post(
+                          f"{registry_url}/api/v1/schemas",
+                          json=contract,
+                          timeout=30
+                      )
+
+                      if response.status_code in [200, 201]:
+                          print(f"✅ Contract validated and accepted by registry")
+                          validation_results.append({
+                              'file': file_path,
+                              'status': 'PASSED',
+                              'contract_name': contract.get('name')
+                          })
+                      else:
+                          print(f"❌ Registry rejected contract: {response.status_code}")
+                          print(f"Response: {response.text}")
+                          all_passed = False
+                          validation_results.append({
+                              'file': file_path,
+                              'status': 'FAILED',
+                              'reason': f'Registry API returned {response.status_code}: {response.text}'
+                          })
+
+                  except requests.exceptions.ConnectionError:
+                      print(f"⚠️  Could not connect to registry API at {registry_url}")
+                      print("💡 Tip: Set REGISTRY_API_URL secret in GitHub settings or ensure API is running")
+                      all_passed = False
+                      validation_results.append({
+                          'file': file_path,
+                          'status': 'FAILED',
+                          'reason': f'Cannot connect to registry API at {registry_url}'
+                      })
+
+              except json.JSONDecodeError as e:
+                  print(f"❌ Invalid JSON: {e}")
+                  all_passed = False
+                  validation_results.append({
+                      'file': file_path,
+                      'status': 'FAILED',
+                      'reason': f'Invalid JSON: {str(e)}'
+                  })
+              except FileNotFoundError:
+                  print(f"❌ File not found: {file_path}")
+                  all_passed = False
+                  validation_results.append({
+                      'file': file_path,
+                      'status': 'FAILED',
+                      'reason': 'File not found'
+                  })
+
+          # Write results to file for next step
+          with open('/tmp/validation_results.json', 'w') as f:
+              json.dump({
+                  'all_passed': all_passed,
+                  'results': validation_results
+              }, f)
+
+          if not all_passed:
+              print("\n❌ Validation failed")
+              sys.exit(1)
+          else:
+              print("\n✅ All contracts validated successfully")
+              sys.exit(0)
+          EOF
+
+      - name: Comment validation results on PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              const results = JSON.parse(fs.readFileSync('/tmp/validation_results.json', 'utf-8'));
+
+              let comment = '## 📊 Schema Validation Results\n\n';
+
+              if (results.all_passed) {
+                comment += '✅ **All contracts validated and approved!**\n\n';
+              } else {
+                comment += '❌ **Validation failed for the following contracts:**\n\n';
+              }
+
+              comment += '| File | Status | Details |\n';
+              comment += '|------|--------|----------|\n';
+
+              results.results.forEach(result => {
+                const status = result.status === 'PASSED' ? '✅' : '❌';
+                const details = result.contract_name || result.reason || 'No details';
+                comment += `| ${result.file} | ${status} ${result.status} | ${details} |\n`;
+              });
+
+              comment += '\n---\n';
+
+              if (results.all_passed) {
+                comment += '🎉 This PR is ready to be merged automatically.';
+              } else {
+                comment += '🔧 Please fix the validation errors and push new commits.';
+              }
+
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            } catch (error) {
+              console.log('Could not read validation results:', error);
+            }
+
+      - name: Auto-merge PR if validation passed
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            // Check if PR is still open and all checks passed
+            if (pullRequest.state === 'open') {
+              try {
+                await github.rest.pulls.merge({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  merge_method: 'squash',
+                  commit_title: `✅ Merge approved contracts: ${pullRequest.title}`,
+                  commit_message: `Automatically merged by schema validation workflow.\n\nPR: #${context.issue.number}\n\nAll data contracts have been validated against the registry API.`
+                });
+
+                console.log('✅ PR auto-merged successfully');
+              } catch (error) {
+                if (error.message.includes('Pull Request is not mergeable')) {
+                  console.log('⚠️  PR is not in a mergeable state (conflicts or pending reviews)');
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+      - name: Report validation failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Schema Validation',
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: 'Schema Validation Failed',
+                summary: 'One or more contracts failed validation against the registry API',
+                text: 'Check the workflow logs and PR comments for details.'
+              }
+            });

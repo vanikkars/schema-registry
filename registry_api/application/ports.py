@@ -101,3 +101,23 @@ class TableCatalogPort(ABC):
             TableCreationError: If table creation fails
         """
         pass
+
+    @abstractmethod
+    def update_table_schema(
+        self,
+        contract: DataContract,
+        database_name: str = "iceberg_tables",
+    ) -> dict:
+        """Update Iceberg table schema when contract evolves.
+
+        Args:
+            contract: The updated data contract
+            database_name: Glue database name
+
+        Returns:
+            Update response with 'status', 'table_name', 'changes', 'warnings'
+
+        Raises:
+            TableCreationError: If schema update fails
+        """
+        pass

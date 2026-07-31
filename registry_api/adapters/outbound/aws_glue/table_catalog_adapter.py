@@ -2,10 +2,13 @@
 
 import os
 import boto3
+import logging
 from registry_api.application.ports import TableCatalogPort
 from registry_api.domain.models import DataContract
 from registry_api.domain.exceptions import TableCreationError
 from .mappers import map_type_to_glue
+
+logger = logging.getLogger(__name__)
 
 
 class GlueIcebergTableAdapter(TableCatalogPort):
@@ -67,7 +70,7 @@ class GlueIcebergTableAdapter(TableCatalogPort):
             )
 
         try:
-            # Create or update the table
+            # Create the table
             self.glue.create_table(
                 DatabaseName=database_name,
                 TableInput={
@@ -98,6 +101,7 @@ class GlueIcebergTableAdapter(TableCatalogPort):
                     },
                 },
             )
+            logger.info(f"Created new Iceberg table: {table_name}")
             return {
                 "status": "created",
                 "table_name": table_name,
@@ -106,7 +110,8 @@ class GlueIcebergTableAdapter(TableCatalogPort):
                 "message": f"Iceberg table '{table_name}' created successfully",
             }
         except self.glue.exceptions.AlreadyExistsException:
-            # Table already exists - return its location
+            # Table already exists - this will be handled by caller (update_table_schema)
+            logger.info(f"Table already exists: {table_name}, returning exists status")
             return {
                 "status": "exists",
                 "table_name": table_name,
@@ -116,3 +121,136 @@ class GlueIcebergTableAdapter(TableCatalogPort):
             }
         except Exception as e:
             raise TableCreationError(table_name, str(e))
+
+    def update_table_schema(
+        self,
+        contract: DataContract,
+        database_name: str = "iceberg_tables",
+    ) -> dict:
+        """Update Iceberg table schema when contract evolves.
+
+        Safe evolution:
+        - Adding nullable columns (backward compatible)
+
+        Risky changes (warnings):
+        - Changing column types
+        - Removing columns
+        - Making non-nullable columns nullable
+
+        Args:
+            contract: The updated data contract
+            database_name: Glue database name
+
+        Returns:
+            Update response with status, changes, warnings
+
+        Raises:
+            TableCreationError: If schema update fails
+        """
+        table_name = contract.contract_id.replace("-", "_").lower()
+
+        try:
+            # Get current table
+            current_table = self.glue.get_table(
+                DatabaseName=database_name, Name=table_name
+            )
+            current_columns = {
+                col["Name"]: col["Type"]
+                for col in current_table["Table"]["StorageDescriptor"]["Columns"]
+            }
+        except self.glue.exceptions.EntityNotFoundException:
+            raise TableCreationError(
+                table_name, f"Table {table_name} not found in database {database_name}"
+            )
+        except Exception as e:
+            raise TableCreationError(
+                table_name, f"Failed to get current table schema: {str(e)}"
+            )
+
+        # Build new columns
+        new_columns = []
+        changes = []
+        warnings = []
+
+        for col in contract.columns:
+            glue_type = map_type_to_glue(col.data_type)
+            new_columns.append(
+                {
+                    "Name": col.name,
+                    "Type": glue_type,
+                    "Comment": col.description or "",
+                }
+            )
+
+        # Detect changes
+        new_col_names = {col["Name"] for col in new_columns}
+        current_col_names = set(current_columns.keys())
+
+        # Added columns
+        added = new_col_names - current_col_names
+        if added:
+            for col_name in added:
+                col = next(c for c in new_columns if c["Name"] == col_name)
+                changes.append(f"Added column: {col_name} ({col['Type']})")
+                logger.info(f"Schema evolution: Added column {col_name}")
+
+        # Removed columns (warning)
+        removed = current_col_names - new_col_names
+        if removed:
+            for col_name in removed:
+                warnings.append(f"Removed column: {col_name} (data will be lost)")
+                logger.warning(f"Schema evolution: Removed column {col_name}")
+
+        # Modified columns (warning)
+        for col_name in current_col_names & new_col_names:
+            new_type = next(
+                (c["Type"] for c in new_columns if c["Name"] == col_name), None
+            )
+            current_type = current_columns[col_name]
+            if new_type != current_type:
+                warnings.append(
+                    f"Modified column type: {col_name} ({current_type} → {new_type})"
+                )
+                logger.warning(
+                    f"Schema evolution: Changed {col_name} type {current_type} → {new_type}"
+                )
+
+        # Update table with new schema
+        try:
+            self.glue.update_table(
+                DatabaseName=database_name,
+                TableInput={
+                    "Name": table_name,
+                    "Description": current_table["Table"]["Description"],
+                    "StorageDescriptor": {
+                        **current_table["Table"]["StorageDescriptor"],
+                        "Columns": new_columns,
+                    },
+                    "PartitionKeys": current_table["Table"].get("PartitionKeys", []),
+                    "TableType": current_table["Table"]["TableType"],
+                    "Parameters": {
+                        **current_table["Table"].get("Parameters", {}),
+                        "iceberg_table_version": contract.version,
+                    },
+                },
+            )
+
+            result = {
+                "status": "updated",
+                "table_name": table_name,
+                "database_name": database_name,
+                "changes": changes,
+                "warnings": warnings,
+                "message": f"Iceberg table '{table_name}' schema updated",
+            }
+
+            if not changes and not warnings:
+                result["message"] = "No schema changes detected"
+
+            logger.info(f"Schema evolution completed for {table_name}: {changes}")
+            return result
+
+        except Exception as e:
+            raise TableCreationError(
+                table_name, f"Failed to update table schema: {str(e)}"
+            )

@@ -22,13 +22,13 @@ class RegisterSchemaUseCase:
         self.table_catalog = table_catalog
 
     def execute(self, contract: DataContract) -> dict:
-        """Register a schema in the registry and create an Iceberg table.
+        """Register a schema in the registry and create/update Iceberg table.
 
         Args:
             contract: Data contract to register
 
         Returns:
-            Response dict with schema and table info
+            Response dict with schema and table info (including evolution details if updated)
 
         Raises:
             SchemaRegistryError subclasses on domain/infrastructure errors
@@ -37,8 +37,12 @@ class RegisterSchemaUseCase:
         schema_arn = self.schema_registry.register_schema(contract)
         schema_details = self.schema_registry.get_schema(contract.contract_id)
 
-        # Create Iceberg table from schema
+        # Handle Iceberg table: create if new, update schema if exists
         table_info = self.table_catalog.create_table(contract)
+
+        # If table already exists, update its schema
+        if table_info["status"] == "exists":
+            table_info = self.table_catalog.update_table_schema(contract)
 
         return {
             "schema": {
@@ -86,8 +90,10 @@ class RegisterSchemaUseCase:
             "table": {
                 "name": table_info["table_name"],
                 "database": table_info["database_name"],
-                "location": table_info["s3_location"],
+                "location": table_info.get("s3_location", ""),
                 "status": table_info["status"],
+                "schema_changes": table_info.get("changes", []),
+                "schema_warnings": table_info.get("warnings", []),
             },
         }
 

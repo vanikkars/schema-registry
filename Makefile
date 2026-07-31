@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test
+.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all
 
 help:
 	@echo "Schema Registry - Make Commands"
@@ -29,6 +29,11 @@ help:
 	@echo "  make list-schemas           - List all schemas in registry"
 	@echo "  make schema-detail          - Get schema details (use SCHEMA_NAME=<name>)"
 	@echo "  make health                 - Check API health"
+	@echo ""
+	@echo "Validation Commands (Atlantis-like):"
+	@echo "  make validate-contracts     - Validate all contracts against registry"
+	@echo "  make validate-export        - Validate and export results to JSON"
+	@echo "  make validate-remote        - Validate against remote API"
 	@echo ""
 
 # Docker Production Commands
@@ -166,3 +171,22 @@ schema-detail:
 list-all-commands:
 	@echo "All available targets:"
 	@grep -E "^[a-zA-Z_-]+:" Makefile | sed 's/:.*//g' | column
+
+# Contract Validation Commands
+validate-contracts:
+	@echo "🔍 Validating all contracts..."
+	python scripts/validate-contracts.py
+
+validate-contracts-%:
+	@echo "🔍 Validating contracts in $*..."
+	python scripts/validate-contracts.py contracts/$*
+
+validate-export:
+	@echo "🔍 Validating all contracts and exporting results..."
+	python scripts/validate-contracts.py --export validation_results.json
+	@echo "✅ Results saved to validation_results.json"
+
+validate-remote:
+	@echo "🔍 Validating against remote API..."
+	@read -p "Enter registry API URL: " url; \
+	python scripts/validate-contracts.py --registry-url $$url

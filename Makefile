@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all tunnel-setup tunnel-run tunnel-list tunnel-stop
+.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all bore-start bore-stop
 
 help:
 	@echo "Schema Registry - Make Commands"
@@ -18,11 +18,8 @@ help:
 	@echo "  make docker-dev-down - Stop development services"
 	@echo ""
 	@echo "Tunnel Commands (GitHub Actions Integration):"
-	@echo "  make tunnel-run-registry  - Expose Registry API (8000) via tunnel"
-	@echo "  make tunnel-run-iceberg   - Expose Iceberg Service (8001) via tunnel"
-	@echo "  make tunnel-setup         - Setup named tunnel (for permanent URLs)"
-	@echo "  make tunnel-list          - List all Cloudflare Tunnels"
-	@echo "  make tunnel-stop          - Stop all Cloudflare Tunnels"
+	@echo "  make bore-start    - Start Bore Tunnels (instant, no setup)"
+	@echo "  make bore-stop     - Stop Bore Tunnels"
 	@echo ""
 	@echo "Local Commands:"
 	@echo "  make setup           - Setup local environment"
@@ -209,28 +206,12 @@ validate-remote:
 	@read -p "Enter registry API URL: " url; \
 	python scripts/validate-contracts.py contracts/current/ --registry-url $$url
 
-# Cloudflare Tunnel Commands
-tunnel-setup:
-	@echo "🚀 Setting up Cloudflare Tunnel..."
-	bash scripts/setup-cloudflare-tunnel.sh
+# Bore Tunnel Commands
+bore-start:
+	@echo "🚀 Starting Bore Tunnels..."
+	@./start-bore.sh
 
-tunnel-run-registry:
-	@echo "🚀 Starting tunnel for Registry API (8000)..."
-	@echo "💡 Tip: Keep this terminal open while developing"
-	@echo "⏳ Waiting for tunnel to establish... (may take 10-15 seconds)"
-	cloudflared tunnel --url http://127.0.0.1:8000
-
-tunnel-run-iceberg:
-	@echo "🚀 Starting tunnel for Iceberg Service (8001)..."
-	@echo "💡 Tip: Keep this terminal open while developing"
-	@echo "⏳ Waiting for tunnel to establish... (may take 10-15 seconds)"
-	cloudflared tunnel --url http://127.0.0.1:8001
-
-tunnel-list:
-	@echo "🔍 Cloudflare Tunnels:"
-	@cloudflared tunnel list
-
-tunnel-stop:
-	@echo "🛑 Stopping Cloudflare Tunnel..."
-	@pkill cloudflared || echo "No tunnel running"
-	@echo "✅ Tunnel stopped"
+bore-stop:
+	@echo "🛑 Stopping Bore Tunnels..."
+	@pkill -f "bore local" 2>/dev/null || echo "No bore tunnels running"
+	@echo "✅ Bore tunnels stopped"

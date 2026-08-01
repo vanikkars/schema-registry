@@ -44,15 +44,19 @@ Set GitHub secrets for local testing:
 
 ## Expose Services to GitHub Actions
 
-```bash
-# Option 1: Direct localhost (same machine)
-# Set secrets to http://localhost:8000 and http://localhost:8001
+Use Bore for instant tunneling (no setup):
 
-# Option 2: Cloudflare Tunnel
-cloudflared tunnel --url http://127.0.0.1:8000  # Terminal 2a
-cloudflared tunnel --url http://127.0.0.1:8001  # Terminal 2b
-# Set secrets to generated URLs
+```bash
+brew install bore-cli
+docker-compose up -d
+make bore-start
 ```
+
+This exposes both services with public URLs. Set these as GitHub secrets:
+- `REGISTRY_API_URL`
+- `ICEBERG_SERVICE_URL`
+
+See [BORE_SETUP.md](BORE_SETUP.md) for details.
 
 ## Architecture
 

@@ -1,1 +1,1 @@
-"""Application layer - Use cases and DTOs."""
+"""Application layer."""

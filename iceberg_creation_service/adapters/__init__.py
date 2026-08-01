@@ -1,0 +1,1 @@
+"""Adapters - External service integrations."""

@@ -1,36 +1,26 @@
-"""Domain Exceptions - Business logic errors."""
+"""Domain exceptions."""
 
 
-class DomainException(Exception):
-    """Base exception for all domain-level errors."""
+class IcebergTableError(Exception):
+    """Base exception for Iceberg table operations."""
     pass
 
 
-class TableCreationError(DomainException):
+class TableCreationError(IcebergTableError):
     """Raised when table creation fails."""
     pass
 
 
-class TableNotFoundError(DomainException):
+class TableNotFoundError(IcebergTableError):
     """Raised when a table is not found."""
     pass
 
 
-class InvalidTableError(DomainException):
+class InvalidTableError(IcebergTableError):
     """Raised when table data is invalid."""
     pass
 
 
-class SchemaEvolutionError(DomainException):
+class SchemaEvolutionError(IcebergTableError):
     """Raised when schema evolution rules are violated."""
-    pass
-
-
-class InvalidDataTypeError(DomainException):
-    """Raised when an unsupported data type is used."""
-    pass
-
-
-class DuplicateTableError(DomainException):
-    """Raised when attempting to create a table that already exists."""
     pass

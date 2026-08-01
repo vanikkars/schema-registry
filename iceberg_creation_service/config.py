@@ -1,17 +1,10 @@
-"""Configuration for Iceberg Creation Service."""
+"""Configuration."""
 
-from pydantic_settings import BaseSettings
+import os
 
 
-class Settings(BaseSettings):
-    """Service configuration."""
-
-    aws_region: str = "us-east-1"
-    aws_glue_database: str = "iceberg_tables"
-    s3_bucket_prefix: str = "iceberg-data"
-    service_port: int = 8001
-    service_host: str = "0.0.0.0"
-
-    class Config:
-        env_file = ".env"
-        env_prefix = "ICEBERG_"
+class Settings:
+    """Service settings."""
+    aws_region: str = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    aws_glue_database: str = os.getenv("ICEBERG_AWS_GLUE_DATABASE", "iceberg_tables")
+    s3_bucket_prefix: str = os.getenv("ICEBERG_S3_BUCKET_PREFIX", "iceberg-data")

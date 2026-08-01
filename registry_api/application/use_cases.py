@@ -7,7 +7,7 @@ from registry_api.domain.exceptions import (
     InvalidVersionError,
     VersionNotFoundError,
 )
-from registry_api.application.ports import SchemaRegistryPort, TableCatalogPort
+from registry_api.application.ports import SchemaRegistryPort
 
 
 class RegisterSchemaUseCase:
@@ -16,19 +16,17 @@ class RegisterSchemaUseCase:
     def __init__(
         self,
         schema_registry: SchemaRegistryPort,
-        table_catalog: TableCatalogPort,
     ):
         self.schema_registry = schema_registry
-        self.table_catalog = table_catalog
 
     def execute(self, contract: DataContract) -> dict:
-        """Register a schema in the registry and create/update Iceberg table.
+        """Register a schema in the registry.
 
         Args:
             contract: Data contract to register
 
         Returns:
-            Response dict with schema and table info (including evolution details if updated)
+            Response dict with schema info
 
         Raises:
             SchemaRegistryError subclasses on domain/infrastructure errors
@@ -36,13 +34,6 @@ class RegisterSchemaUseCase:
         # Register schema in Glue Schema Registry
         schema_arn = self.schema_registry.register_schema(contract)
         schema_details = self.schema_registry.get_schema(contract.contract_id)
-
-        # Handle Iceberg table: create if new, update schema if exists
-        table_info = self.table_catalog.create_table(contract)
-
-        # If table already exists, update its schema
-        if table_info["status"] == "exists":
-            table_info = self.table_catalog.update_table_schema(contract)
 
         return {
             "schema": {
@@ -86,14 +77,6 @@ class RegisterSchemaUseCase:
                 "updated_at": str(schema_details.get("UpdatedTime", ""))
                 if schema_details
                 else "",
-            },
-            "table": {
-                "name": table_info["table_name"],
-                "database": table_info["database_name"],
-                "location": table_info.get("s3_location", ""),
-                "status": table_info["status"],
-                "schema_changes": table_info.get("changes", []),
-                "schema_warnings": table_info.get("warnings", []),
             },
         }
 

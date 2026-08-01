@@ -12,9 +12,6 @@ from registry_api.adapters.inbound.http.router import create_router
 from registry_api.adapters.outbound.aws_glue.schema_registry_adapter import (
     GlueSchemaRegistryAdapter,
 )
-from registry_api.adapters.outbound.aws_glue.table_catalog_adapter import (
-    GlueIcebergTableAdapter,
-)
 from registry_api.application.use_cases import (
     RegisterSchemaUseCase,
     ListSchemasUseCase,
@@ -57,12 +54,10 @@ def create_app() -> FastAPI:
 
     # Instantiate outbound adapters (AWS Glue)
     schema_registry_adapter = GlueSchemaRegistryAdapter()
-    table_catalog_adapter = GlueIcebergTableAdapter()
 
     # Instantiate use cases, injecting adapters (ports)
     register_schema_use_case = RegisterSchemaUseCase(
         schema_registry=schema_registry_adapter,
-        table_catalog=table_catalog_adapter,
     )
     list_schemas_use_case = ListSchemasUseCase(
         schema_registry=schema_registry_adapter

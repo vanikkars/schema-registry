@@ -1,0 +1,216 @@
+name: Create Iceberg Tables
+
+on:
+  workflow_run:
+    workflows: ["Schema Validation & Auto-Merge"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  create-iceberg-tables:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pydantic
+
+      - name: Find changed contract files
+        id: changed-files
+        run: |
+          MERGE_BASE=$(git merge-base origin/main HEAD)
+          CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD -- 'contracts/current/**/*.json' | tr '\n' '|' | sed 's/|$//')
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+
+      - name: Create Iceberg tables
+        id: table-creation
+        env:
+          ICEBERG_SERVICE_URL: ${{ secrets.ICEBERG_SERVICE_URL || 'http://localhost:8001' }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          import requests
+          from pathlib import Path
+
+          iceberg_url = "${{ env.ICEBERG_SERVICE_URL }}"
+          changed_files = "${{ steps.changed-files.outputs.files }}".strip().split('|')
+
+          if not iceberg_url:
+              print("⚠️  ICEBERG_SERVICE_URL not configured, skipping table creation")
+              sys.exit(0)
+
+          results = []
+          all_passed = True
+
+          for file_path in changed_files:
+              if not file_path.strip() or not file_path.endswith('.json'):
+                  continue
+
+              print(f"\n📋 Creating table for: {file_path}")
+
+              try:
+                  with open(file_path, 'r') as f:
+                      contract = json.load(f)
+
+                  contract_name = contract.get('name')
+                  print(f"📤 Calling Iceberg service for {contract_name}...")
+
+                  response = requests.post(
+                      f"{iceberg_url}/api/v1/tables",
+                      json=contract,
+                      timeout=30
+                  )
+
+                  if response.status_code == 201:
+                      result = response.json().get('data', {})
+                      if result.get('status') in ['created', 'exists']:
+                          print(f"✅ Table {result.get('status')}: {result.get('table_name')}")
+                          results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': result.get('status').upper(),
+                              'table_name': result.get('table_name'),
+                              'message': result.get('message')
+                          })
+                      else:
+                          print(f"❌ Unexpected response: {result}")
+                          all_passed = False
+                          results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'FAILED',
+                              'error': result.get('message', 'Unknown error')
+                          })
+                  else:
+                      print(f"❌ Iceberg service returned {response.status_code}")
+                      error_detail = response.json() if response.headers.get('content-type') == 'application/json' else response.text
+                      all_passed = False
+                      results.append({
+                          'file': file_path,
+                          'contract': contract_name,
+                          'status': 'FAILED',
+                          'error': str(error_detail)
+                      })
+
+              except requests.exceptions.Timeout:
+                  print(f"⏱️  Iceberg service timeout (30s)")
+                  all_passed = False
+                  results.append({
+                      'file': file_path,
+                      'contract': contract.get('name', 'unknown'),
+                      'status': 'TIMEOUT',
+                      'error': 'Request timed out after 30 seconds'
+                  })
+              except requests.exceptions.ConnectionError:
+                  print(f"⚠️  Could not connect to Iceberg service at {iceberg_url}")
+                  all_passed = False
+                  results.append({
+                      'file': file_path,
+                      'contract': contract.get('name', 'unknown'),
+                      'status': 'CONNECTION_ERROR',
+                      'error': f'Cannot reach Iceberg service at {iceberg_url}'
+                  })
+              except json.JSONDecodeError as e:
+                  print(f"❌ Invalid JSON in contract: {e}")
+                  all_passed = False
+                  results.append({
+                      'file': file_path,
+                      'status': 'INVALID_JSON',
+                      'error': str(e)
+                  })
+              except Exception as e:
+                  print(f"❌ Error: {str(e)}")
+                  all_passed = False
+                  results.append({
+                      'file': file_path,
+                      'contract': contract.get('name', 'unknown') if isinstance(contract, dict) else 'unknown',
+                      'status': 'ERROR',
+                      'error': str(e)
+                  })
+
+          # Write results for PR comment
+          with open('/tmp/table_results.json', 'w') as f:
+              json.dump({
+                  'all_passed': all_passed,
+                  'results': results
+              }, f)
+
+          if not all_passed:
+              print("\n❌ Some tables failed to create")
+              sys.exit(1)
+          else:
+              print("\n✅ All tables created successfully")
+              sys.exit(0)
+          EOF
+
+      - name: Comment table creation results on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              const data = JSON.parse(fs.readFileSync('/tmp/table_results.json', 'utf-8'));
+              const results = data.results || [];
+
+              let comment = '## 📊 Iceberg Table Creation Results\n\n';
+
+              const failed = results.filter(r => !['CREATED', 'EXISTS'].includes(r.status));
+              if (failed.length === 0) {
+                comment += '✅ **All Iceberg tables created successfully!**\n\n';
+              } else {
+                comment += `❌ **${failed.length} table(s) failed to create:**\n\n`;
+              }
+
+              comment += '| Contract | Table | Status | Details |\n';
+              comment += '|----------|-------|--------|----------|\n';
+
+              results.forEach(result => {
+                let status_icon = '✅';
+                if (result.status === 'FAILED' || result.status === 'ERROR') status_icon = '❌';
+                else if (result.status === 'EXISTS') status_icon = '⚠️';
+                else if (result.status === 'TIMEOUT' || result.status === 'CONNECTION_ERROR') status_icon = '⏱️';
+
+                const details = result.table_name || result.message || result.error || 'N/A';
+                comment += `| ${result.contract || 'N/A'} | ${result.table_name || 'N/A'} | ${status_icon} ${result.status} | ${details} |\n`;
+              });
+
+              comment += '\n---\n';
+
+              if (!data.all_passed) {
+                comment += '💡 **Troubleshooting:**\n';
+                comment += '- Check that Iceberg service is running and accessible\n';
+                comment += '- Review service logs for detailed error messages\n';
+                comment += '- Fix any contract validation issues and push a new commit\n';
+                comment += '- To retry, close and reopen this PR or push an empty commit\n';
+              } else {
+                comment += '🎉 Iceberg tables are ready to use!\n';
+              }
+
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            } catch (error) {
+              console.log('Error posting comment:', error);
+            }

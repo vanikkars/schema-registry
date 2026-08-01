@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all
+.PHONY: help docker-build docker-up docker-down docker-logs docker-shell docker-dev docker-dev-down docker-clean test validate-contracts validate-all bore-start bore-stop
 
 help:
 	@echo "Schema Registry - Make Commands"
@@ -16,6 +16,10 @@ help:
 	@echo "Development Commands:"
 	@echo "  make docker-dev      - Start development services (with postgres, redis)"
 	@echo "  make docker-dev-down - Stop development services"
+	@echo ""
+	@echo "Tunnel Commands (GitHub Actions Integration):"
+	@echo "  make bore-start    - Start Bore Tunnels (instant, no setup)"
+	@echo "  make bore-stop     - Stop Bore Tunnels"
 	@echo ""
 	@echo "Local Commands:"
 	@echo "  make setup           - Setup local environment"
@@ -201,3 +205,13 @@ validate-remote:
 	@echo "🔍 Validating current contracts against remote API..."
 	@read -p "Enter registry API URL: " url; \
 	python scripts/validate-contracts.py contracts/current/ --registry-url $$url
+
+# Bore Tunnel Commands
+bore-start:
+	@echo "🚀 Starting Bore Tunnels..."
+	@./start-bore.sh
+
+bore-stop:
+	@echo "🛑 Stopping Bore Tunnels..."
+	@pkill -f "bore local" 2>/dev/null || echo "No bore tunnels running"
+	@echo "✅ Bore tunnels stopped"

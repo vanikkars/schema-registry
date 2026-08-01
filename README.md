@@ -1,168 +1,112 @@
-# Schema Registry API
+# Schema Registry
 
-A FastAPI-based data contract management system with AWS Glue Schema Registry integration.
+A FastAPI-based data contract management system with AWS Glue integration and GitHub Actions automation.
 
 ## Quick Start
 
-### 1. Setup Environment
-
 ```bash
-# Copy environment template
+# Setup environment
 cp .env.example .env
-
-# Edit .env with AWS credentials
 source .env
-```
 
-### 2. Deploy Infrastructure (Terraform)
-
-```bash
-cd infra/aws
-terraform init
-terraform plan
-terraform apply
-```
-
-### 3. Start the API
-
-```bash
+# Start services
 docker-compose up
-# or
-python -m uvicorn registry_api.main:app --reload
+
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
 ```
 
-API runs at `http://localhost:8000`
+## Services
 
-## API Endpoints
+- **Registry API** (8000) - Schema management and contracts
+- **Iceberg Service** (8001) - Table creation and management
 
-### Health Check
-```bash
-GET /health
+## Key Endpoints
+
+```
+GET    /health                              Service health
+POST   /api/v1/schemas                      Register schema
+GET    /api/v1/schemas                      List schemas
+GET    /api/v1/schemas/{name}               Get latest schema
+GET    /api/v1/schemas/{name}/versions      List versions
+GET    /api/v1/schemas/{name}/versions/{v}  Get specific version
 ```
 
-### Create Schema
-```bash
-POST /api/v1/schemas
-Content-Type: application/json
+## GitHub Actions Integration
 
-# Request body: data contract JSON
-```
+Schemas in `contracts/current/` trigger automated workflows:
+1. **Validate** - Schema validation via Registry API
+2. **Create Tables** - Iceberg table creation via Iceberg Service
 
-### List All Schemas
-```bash
-GET /api/v1/schemas?limit=20&offset=0
-```
+Set GitHub secrets for local testing:
+- `REGISTRY_API_URL` - Local or tunnel URL
+- `ICEBERG_SERVICE_URL` - Local or tunnel URL
 
-### Get Latest Schema
-```bash
-GET /api/v1/schemas/{schema_name}
-```
+## Expose Services to GitHub Actions
 
-Returns latest version with metadata (owner, steward, SLAs, etc.)
-
-### List All Versions
-```bash
-GET /api/v1/schemas/{schema_name}/versions
-```
-
-Returns list of all available versions with metadata and schema definitions.
-
-### Get Specific Version
-```bash
-GET /api/v1/schemas/{schema_name}/versions/{version}
-```
-
-Returns specific version with metadata and full schema definition.
-
-## Example Usage
-
-### Register a Schema
+Use Bore for instant tunneling (no setup):
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/schemas" \
-  -H "Content-Type: application/json" \
-  -d @contracts/user/02/user_v1.json
+brew install bore-cli
+docker-compose up -d
+make bore-start
 ```
 
-### Get Latest Version with Metadata
+This exposes both services with public URLs. Set these as GitHub secrets:
+- `REGISTRY_API_URL`
+- `ICEBERG_SERVICE_URL`
 
-```bash
-curl "http://localhost:8000/api/v1/schemas/users-v1" | jq '.data'
-```
-
-### List All Versions
-
-```bash
-curl "http://localhost:8000/api/v1/schemas/users-v1/versions" | jq '.data.versions'
-```
-
-### Get Specific Version
-
-```bash
-curl "http://localhost:8000/api/v1/schemas/users-v1/versions/5" | jq '.data'
-```
-
-## Project Structure
-
-```
-schema-registry/
-├── registry_api/              # FastAPI application
-│   ├── domain/               # Business logic
-│   ├── application/          # Use cases
-│   ├── adapters/             # AWS integration
-│   └── main.py              # Entry point
-├── contracts/                # Data contract definitions
-├── infra/                    # Terraform IaC
-│   └── aws/                 # AWS resources
-├── Dockerfile
-├── docker-compose.yml
-└── README.md
-```
+See [BORE_SETUP.md](BORE_SETUP.md) for details.
 
 ## Architecture
 
-### Layers
+```
+registry_api/           Domain-driven design with layers:
+├── domain/            Business logic & entities
+├── application/       Use cases & orchestration
+├── adapters/          AWS Glue integration
+└── main.py           FastAPI entry point
 
-- **Domain**: Data models, entities, business rules
-- **Application**: Use cases, orchestration
-- **Adapters**: AWS Glue integration, HTTP API
-- **Infrastructure**: Docker, Terraform, AWS
+iceberg_creation_service/  Table management:
+├── domain/            Business logic
+├── application/       Use cases
+├── adapters/          AWS Glue integration
+└── main.py           FastAPI entry point
 
-### Key Features
-
-- ✅ Schema registration and versioning
-- ✅ Metadata tracking (owner, steward, SLAs)
-- ✅ AVRO schema generation and validation
-- ✅ Backward compatibility checking
-- ✅ Multi-version support
-- ✅ Interactive API documentation (Swagger)
+contracts/             Schema definitions
+infra/                 Terraform & AWS setup
+```
 
 ## Environment Variables
 
 ```bash
-# AWS Credentials
 AWS_ACCESS_KEY_ID=your_key
 AWS_SECRET_ACCESS_KEY=your_secret
 AWS_DEFAULT_REGION=us-east-1
-
-# Glue Registry
-TF_VAR_registry_name=schema-registry
-TF_VAR_registry_description=Schema Registry for data contracts
+REGISTRY_API_URL=http://localhost:8000
+ICEBERG_SERVICE_URL=http://localhost:8001
 ```
 
 ## Requirements
 
 - Python 3.10+
-- Terraform >= 1.0
-- AWS Account with Glue permissions
-- Docker (optional)
+- Docker & Docker Compose
+- AWS Account (for production)
+- Terraform >= 1.0 (for infrastructure)
 
 ## Documentation
 
-- [Registry API](registry_api/README.md) - API details
-- [Infrastructure](infra/README.md) - Terraform setup
-- [AWS Setup](infra/aws/README.md) - AWS configuration
+- [Registry API](registry_api/README.md)
+- [Iceberg Service](iceberg_creation_service/README.md)
+- [Contracts](contracts/README.md)
+- [Infrastructure](infra/README.md)
 
-## License
+## Commands
 
-MIT
+```bash
+make docker-up              # Start services
+make docker-down            # Stop services
+make tunnel-run-registry    # Expose Registry API via tunnel
+make tunnel-run-iceberg     # Expose Iceberg Service via tunnel
+make tunnel-stop            # Stop tunnels
+```

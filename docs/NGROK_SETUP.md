@@ -1,20 +1,24 @@
-# Using ngrok to Expose Local Registry API for GitHub Actions
+# Using ngrok to Expose Local Services for GitHub Actions
 
-When running your registry API locally on `localhost:8000`, GitHub Actions running in the cloud cannot reach it. **ngrok** exposes your local API to the internet so GitHub Actions can validate contracts.
+When running your services locally (Registry API on `localhost:8000` and Iceberg Service on `localhost:8001`), GitHub Actions running in the cloud cannot reach them. **ngrok** exposes your local services to the internet so GitHub Actions can validate contracts and create Iceberg tables.
 
 ## What is ngrok?
 
 **ngrok** creates a secure tunnel from your local machine to the internet, allowing external services (like GitHub Actions) to reach your local API.
 
 ```
-Your PC (localhost:8000)
+Your PC
+├─ Registry API (localhost:8000)
+└─ Iceberg Service (localhost:8001)
     ↑
-    │ ngrok tunnel
+    │ ngrok tunnels
     │
 Internet
     ↑
     │
 GitHub Actions
+  ├─ Validate schemas (REGISTRY_API_URL)
+  └─ Create Iceberg tables (ICEBERG_SERVICE_URL)
 ```
 
 ## Installation
@@ -43,15 +47,29 @@ ngrok --version
 
 ## Quick Start (5 minutes)
 
-### Step 1: Start Your Registry API
+### Step 1: Start Your Services
 ```bash
-make docker-up
-# API is now running on http://localhost:8000
+docker-compose up -d
+# Registry API is running on http://localhost:8000
+# Iceberg Service is running on http://localhost:8001
 ```
 
-### Step 2: Expose with ngrok (new terminal)
+### Step 2: Expose Both Services with ngrok (new terminal)
+
+**Option A: Expose both services (Recommended)**
 ```bash
+# Terminal 2a: Expose Registry API
+ngrok http 8000 --subdomain=registry-api
+
+# Terminal 2b: Expose Iceberg Service (in another terminal)
+ngrok http 8001 --subdomain=iceberg-api
+```
+
+**Option B: Expose with dynamic subdomains (Free ngrok)**
+```bash
+# Terminal 2: Start ngrok (exposes both)
 ngrok http 8000
+# Note the URL, e.g., https://abc123def456.ngrok.io
 ```
 
 You'll see output like:
@@ -67,21 +85,36 @@ Forwarding                    http://abc123def456.ngrok.io -> http://localhost:8
 Web Interface                 http://127.0.0.1:4040
 ```
 
-### Step 3: Copy the HTTPS URL
+### Step 3: Copy the HTTPS URLs
+
+For **Registry API**:
 ```
 https://abc123def456.ngrok.io
 ```
 
-### Step 4: Set GitHub Secret
+For **Iceberg Service** (if using same ngrok instance):
+- If you exposed port 8000, use the same URL but requests will only reach port 8000
+- **Recommended**: Use separate ngrok instances for each service
+  - Registry API: `https://registry-api.ngrok.io`
+  - Iceberg Service: `https://iceberg-api.ngrok.io`
+
+### Step 4: Set GitHub Secrets
 1. Go to GitHub repository
 2. **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Name: `REGISTRY_API_URL`
-5. Value: `https://abc123def456.ngrok.io`
-6. Click **Add secret**
+3. Create first secret:
+   - Name: `REGISTRY_API_URL`
+   - Value: `https://abc123def456.ngrok.io` (or your ngrok URL)
+   - Click **Add secret**
+4. Create second secret:
+   - Name: `ICEBERG_SERVICE_URL`
+   - Value: `https://iceberg-api.ngrok.io` (or your Iceberg service URL)
+   - Click **Add secret**
 
 ### Step 5: Create a Test PR
-Push a contract change and create a PR. GitHub Actions will now reach your local API!
+Push a contract change and create a PR. GitHub Actions will now:
+1. ✅ Reach your local Registry API (validate schemas)
+2. ✅ Reach your local Iceberg Service (create tables)
+3. ✅ Post results to PR
 
 ## How to Use ngrok
 
@@ -115,9 +148,9 @@ Shows:
 - Request/response details
 - Headers and body
 
-## GitHub Actions Workflow
+## GitHub Actions Workflows
 
-### Automatic Detection
+### Schema Validation Workflow
 Once you set the `REGISTRY_API_URL` secret, the workflow automatically uses it:
 
 ```yaml
@@ -127,15 +160,39 @@ env:
 
 The workflow:
 1. Reads `REGISTRY_API_URL` from GitHub secret
-2. Uses it for API calls
-3. Posts results to PR
+2. Validates contracts against Registry API
+3. Posts validation results to PR
+4. Auto-merges if all pass
+
+### Iceberg Table Creation Workflow
+Once you set the `ICEBERG_SERVICE_URL` secret, the workflow automatically uses it:
+
+```yaml
+env:
+  ICEBERG_SERVICE_URL: ${{ secrets.ICEBERG_SERVICE_URL || 'http://localhost:8001' }}
+```
+
+The workflow:
+1. Triggered after schema validation succeeds
+2. Reads `ICEBERG_SERVICE_URL` from GitHub secret
+3. Creates Iceberg tables for each contract
+4. Posts creation results to PR
 
 ### Testing the Connection
 The workflow logs will show:
+
+**Schema Validation:**
 ```
 📤 Sending contract to registry...
 📍 Registry API: https://abc123def456.ngrok.io
 ✅ Contract validated
+```
+
+**Iceberg Table Creation:**
+```
+📤 Calling Iceberg service...
+📍 Iceberg Service: https://iceberg-api.ngrok.io
+✅ Table created: user_v1
 ```
 
 ## Important Considerations
@@ -162,21 +219,26 @@ ngrok http 8000
 ngrok must stay running while you test:
 
 ```bash
-# Terminal 1: Start API
-make docker-up
+# Terminal 1: Start services
+docker-compose up -d
 
-# Terminal 2: Start ngrok (keep running)
+# Terminal 2a: Start ngrok for Registry API (keep running)
 ngrok http 8000
 
-# Terminal 3: Create PR and watch workflow
-# Workflow uses ngrok URL to reach API
+# Terminal 2b: Start ngrok for Iceberg Service (in another terminal, keep running)
+ngrok http 8001
+
+# Terminal 3: Create PR and watch workflows
+# Workflows use ngrok URLs to reach both services
 ```
 
-### 3. Update Secret When URL Changes
-If ngrok URL changes, update GitHub secret:
-1. Get new URL from ngrok
+### 3. Update Secrets When URLs Change
+If ngrok URLs change, update GitHub secrets:
+1. Get new URLs from ngrok terminals
 2. Go to GitHub → Settings → Secrets
-3. Update `REGISTRY_API_URL` with new URL
+3. Update:
+   - `REGISTRY_API_URL` with new Registry API URL
+   - `ICEBERG_SERVICE_URL` with new Iceberg Service URL
 4. Create another test PR
 
 ## Advanced Setup
@@ -237,7 +299,7 @@ ngrok start api
 
 ### Option 4: Docker Compose Integration
 
-Add ngrok to your docker-compose.yml:
+Add ngrok services to your docker-compose.yml:
 
 ```yaml
 services:
@@ -246,22 +308,39 @@ services:
     ports:
       - "8000:8000"
 
-  ngrok:
+  iceberg-creation:
+    # ... your Iceberg service config ...
+    ports:
+      - "8001:8001"
+
+  ngrok-registry:
     image: ngrok/ngrok:latest
     environment:
       - NGROK_AUTHTOKEN=${NGROK_TOKEN}
-    command: http registry_api:8000 --domain=myapi.ngrok.io
+    command: http registry_api:8000 --domain=registry-api.ngrok.io
     ports:
       - "4040:4040"  # Web interface
     depends_on:
       - registry_api
+
+  ngrok-iceberg:
+    image: ngrok/ngrok:latest
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_TOKEN}
+    command: http iceberg-creation:8001 --domain=iceberg-api.ngrok.io
+    ports:
+      - "4041:4041"  # Web interface
+    depends_on:
+      - iceberg-creation
 ```
 
 Then:
 ```bash
 export NGROK_TOKEN=your_token
 docker-compose up
-# ngrok automatically starts with API
+# ngrok automatically starts with both services
+# Registry API: https://registry-api.ngrok.io
+# Iceberg Service: https://iceberg-api.ngrok.io
 ```
 
 ## Troubleshooting
@@ -306,15 +385,23 @@ docker-compose up
 3. Run: `ngrok config add-authtoken YOUR_TOKEN`
 4. Restart ngrok
 
-### "Workflow still can't reach API"
+### "Workflow still can't reach services"
 
-**Problem:** GitHub Actions shows "Cannot connect to registry API"
+**Problem:** GitHub Actions shows "Cannot connect to registry API" or "Cannot connect to Iceberg service"
 
 **Solutions:**
-1. Check `REGISTRY_API_URL` secret exists in GitHub
-2. Verify URL format: `https://xxx.ngrok.io` (HTTPS, not HTTP)
-3. Test URL locally: `curl https://abc123def456.ngrok.io/health`
-4. Check ngrok logs in web interface (http://127.0.0.1:4040)
+1. Check both secrets exist in GitHub:
+   - `REGISTRY_API_URL`
+   - `ICEBERG_SERVICE_URL`
+2. Verify URL formats: `https://xxx.ngrok.io` (HTTPS, not HTTP)
+3. Test URLs locally:
+   ```bash
+   curl https://abc123def456.ngrok.io/health         # Registry API
+   curl https://iceberg-api.ngrok.io/health          # Iceberg Service
+   ```
+4. Check ngrok logs in web interfaces:
+   - Registry: http://127.0.0.1:4040
+   - Iceberg: http://127.0.0.1:4041 (if using separate ngrok)
 
 ## Monitoring
 
@@ -348,46 +435,59 @@ See all API requests and responses
 
 ### Terminal Setup
 ```bash
-# Terminal 1: Start API
+# Terminal 1: Start services
 cd /path/to/schema-registry
-make docker-up
+docker-compose up -d
 
-# Terminal 2: Start ngrok
-ngrok http 8000
-# Copy: https://abc123def456.ngrok.io
+# Terminal 2a: Expose Registry API with ngrok
+ngrok http 8000 --subdomain=registry-api
+# Copy: https://registry-api.ngrok.io
 
-# Terminal 3: Set GitHub secret (one-time)
+# Terminal 2b: Expose Iceberg Service with ngrok (in another terminal)
+ngrok http 8001 --subdomain=iceberg-api
+# Copy: https://iceberg-api.ngrok.io
+
+# Terminal 3: Set GitHub secrets (one-time)
 # Go to GitHub → Settings → Secrets
-# REGISTRY_API_URL = https://abc123def456.ngrok.io
+# Create: REGISTRY_API_URL = https://registry-api.ngrok.io
+# Create: ICEBERG_SERVICE_URL = https://iceberg-api.ngrok.io
 
-# Terminal 3: Create test PR
+# Terminal 4: Create test PR
 git checkout -b test-contract
-# Modify a contract
+# Add a new contract file
+git add contracts/current/example/example_v1.json
 git push origin test-contract
 # Open PR on GitHub
 # Watch Actions tab!
 ```
 
 ### What Happens
-1. ✅ Workflow triggers
-2. ✅ Reads GitHub secret
-3. ✅ Uses ngrok URL to reach local API
-4. ✅ Validates contracts
-5. ✅ Posts results to PR
-6. ✅ Auto-merges if valid
+1. ✅ Workflow triggers on PR creation
+2. ✅ **Schema Validation Workflow**:
+   - Reads `REGISTRY_API_URL` from GitHub secret
+   - Uses ngrok to reach local Registry API
+   - Validates contracts
+   - Posts validation results to PR
+   - Auto-merges if valid
+3. ✅ **Iceberg Table Creation Workflow** (after merge):
+   - Reads `ICEBERG_SERVICE_URL` from GitHub secret
+   - Uses ngrok to reach local Iceberg Service
+   - Creates Iceberg tables for each contract
+   - Posts creation results to PR
 
 ## Production Deployment
 
 When ready for production:
 
-1. **Deploy API** to cloud (AWS, Heroku, etc.)
-2. **Update GitHub secret** with production URL
+1. **Deploy both services** to cloud (AWS, Heroku, etc.)
+2. **Update GitHub secrets** with production URLs
 3. **Remove ngrok** locally
-4. **Workflow continues to work** with production API
+4. **Workflows continue to work** with production services
 
 ```bash
-# Update secret
-REGISTRY_API_URL = https://prod-api.your-domain.com
+# Update secrets
+REGISTRY_API_URL = https://prod-registry.your-domain.com
+ICEBERG_SERVICE_URL = https://prod-iceberg.your-domain.com
 
 # ngrok no longer needed
 pkill ngrok
@@ -438,8 +538,11 @@ open http://127.0.0.1:4040
 ## Next Steps
 
 1. ✅ Install ngrok: `brew install ngrok`
-2. ✅ Start API: `make docker-up`
-3. ✅ Run ngrok: `ngrok http 8000`
-4. ✅ Copy URL and set GitHub secret
-5. ✅ Create test PR
-6. ✅ Watch it work!
+2. ✅ Start services: `docker-compose up -d`
+3. ✅ Run ngrok for Registry API: `ngrok http 8000 --subdomain=registry-api`
+4. ✅ Run ngrok for Iceberg Service: `ngrok http 8001 --subdomain=iceberg-api`
+5. ✅ Copy URLs and set GitHub secrets:
+   - `REGISTRY_API_URL`
+   - `ICEBERG_SERVICE_URL`
+6. ✅ Create test PR
+7. ✅ Watch both workflows run!

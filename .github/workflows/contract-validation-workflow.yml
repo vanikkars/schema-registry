@@ -1,4 +1,4 @@
-name: Schema Validation & Auto-Merge
+name: Validate, Create Iceberg Tables & Auto-Merge
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  validate-contracts:
+  validate-and-create-tables:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -33,13 +33,10 @@ jobs:
       - name: Find changed contract files
         id: changed-files
         run: |
-          # Get the merge base to compare against
           MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
-
-          # Find all changed JSON files in contracts/current folder only
           CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD -- 'contracts/current/**/*.json' | tr '\n' ' ')
           echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "Changed contract files (from current folder): $CHANGED_FILES"
+          echo "Changed contract files: $CHANGED_FILES"
 
       - name: Validate contracts against registry API
         id: validation
@@ -50,7 +47,6 @@ jobs:
           import json
           import sys
           import requests
-          from pathlib import Path
 
           changed_files = "${{ steps.changed-files.outputs.files }}".strip().split()
           registry_url = "${{ env.REGISTRY_API_URL }}"
@@ -72,7 +68,6 @@ jobs:
                   with open(file_path, 'r') as f:
                       contract = json.load(f)
 
-                  # Validate contract has at least a 'name' field
                   if 'name' not in contract:
                       print(f"❌ Missing required field: 'name'")
                       all_passed = False
@@ -83,8 +78,7 @@ jobs:
                       })
                       continue
 
-                  # Send to registry API
-                  print(f"📤 Sending contract '{contract.get('name')}' to registry...")
+                  print(f"📤 Validating contract '{contract.get('name')}' in registry...")
 
                   try:
                       response = requests.post(
@@ -94,30 +88,28 @@ jobs:
                       )
 
                       if response.status_code in [200, 201]:
-                          print(f"✅ Contract validated and accepted by registry")
+                          print(f"✅ Contract validated by registry")
                           validation_results.append({
                               'file': file_path,
                               'status': 'PASSED',
                               'contract_name': contract.get('name')
                           })
                       else:
-                          print(f"❌ Registry rejected contract: {response.status_code}")
-                          print(f"Response: {response.text}")
+                          print(f"❌ Registry validation failed: {response.status_code}")
                           all_passed = False
                           validation_results.append({
                               'file': file_path,
                               'status': 'FAILED',
-                              'reason': f'Registry API returned {response.status_code}: {response.text}'
+                              'reason': f'Registry returned {response.status_code}'
                           })
 
                   except requests.exceptions.ConnectionError:
-                      print(f"⚠️  Could not connect to registry API at {registry_url}")
-                      print("💡 Tip: Set REGISTRY_API_URL secret in GitHub settings or ensure API is running")
+                      print(f"⚠️  Cannot connect to registry at {registry_url}")
                       all_passed = False
                       validation_results.append({
                           'file': file_path,
                           'status': 'FAILED',
-                          'reason': f'Cannot connect to registry API at {registry_url}'
+                          'reason': f'Cannot reach registry API'
                       })
 
               except json.JSONDecodeError as e:
@@ -126,78 +118,164 @@ jobs:
                   validation_results.append({
                       'file': file_path,
                       'status': 'FAILED',
-                      'reason': f'Invalid JSON: {str(e)}'
-                  })
-              except FileNotFoundError:
-                  print(f"❌ File not found: {file_path}")
-                  all_passed = False
-                  validation_results.append({
-                      'file': file_path,
-                      'status': 'FAILED',
-                      'reason': 'File not found'
+                      'reason': f'Invalid JSON'
                   })
 
-          # Write results to file for next step
           with open('/tmp/validation_results.json', 'w') as f:
               json.dump({
                   'all_passed': all_passed,
                   'results': validation_results
               }, f)
 
-          if not all_passed:
-              print("\n❌ Validation failed")
-              sys.exit(1)
-          else:
-              print("\n✅ All contracts validated successfully")
-              sys.exit(0)
+          sys.exit(0 if all_passed else 1)
           EOF
 
-      - name: Comment validation results on PR
+      - name: Create Iceberg tables
+        id: iceberg
+        if: success()
+        env:
+          ICEBERG_SERVICE_URL: ${{ secrets.ICEBERG_SERVICE_URL || 'http://localhost:8001' }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          import requests
+
+          changed_files = "${{ steps.changed-files.outputs.files }}".strip().split()
+          iceberg_url = "${{ env.ICEBERG_SERVICE_URL }}"
+
+          if not changed_files or changed_files == ['']:
+              print("::notice::No contracts to create tables for")
+              sys.exit(0)
+
+          iceberg_results = []
+          all_passed = True
+
+          for file_path in changed_files:
+              if not file_path.endswith('.json'):
+                  continue
+
+              print(f"\n📊 Creating Iceberg table: {file_path}")
+
+              try:
+                  with open(file_path, 'r') as f:
+                      contract = json.load(f)
+
+                  contract_name = contract.get('name')
+                  print(f"📤 Calling Iceberg service for {contract_name}...")
+
+                  response = requests.post(
+                      f"{iceberg_url}/api/v1/tables",
+                      json=contract,
+                      timeout=30
+                  )
+
+                  if response.status_code == 201:
+                      result = response.json().get('data', {})
+                      if result.get('status') in ['created', 'exists']:
+                          print(f"✅ Table {result.get('status')}: {result.get('table_name')}")
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': result.get('status').upper(),
+                              'table_name': result.get('table_name')
+                          })
+                      else:
+                          print(f"❌ Unexpected response: {result}")
+                          all_passed = False
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'FAILED',
+                              'error': 'Unexpected response'
+                          })
+                  else:
+                      print(f"❌ Iceberg service returned {response.status_code}")
+                      all_passed = False
+                      iceberg_results.append({
+                          'file': file_path,
+                          'contract': contract_name,
+                          'status': 'FAILED',
+                          'error': f'HTTP {response.status_code}'
+                      })
+
+              except requests.exceptions.ConnectionError:
+                  print(f"⚠️  Cannot connect to Iceberg service at {iceberg_url}")
+                  all_passed = False
+                  iceberg_results.append({
+                      'file': file_path,
+                      'contract': contract.get('name', 'unknown'),
+                      'status': 'CONNECTION_ERROR',
+                      'error': 'Cannot reach Iceberg service'
+                  })
+
+              except json.JSONDecodeError as e:
+                  print(f"❌ Invalid JSON: {e}")
+                  all_passed = False
+                  iceberg_results.append({
+                      'file': file_path,
+                      'status': 'INVALID_JSON',
+                      'error': str(e)
+                  })
+
+          with open('/tmp/iceberg_results.json', 'w') as f:
+              json.dump({
+                  'all_passed': all_passed,
+                  'results': iceberg_results
+              }, f)
+
+          sys.exit(0 if all_passed else 1)
+          EOF
+
+      - name: Comment validation & table creation results on PR
         uses: actions/github-script@v7
         if: always()
         with:
           script: |
             const fs = require('fs');
 
+            let comment = '## 📊 Validation & Table Creation Results\n\n';
+
+            // Read validation results
             try {
-              const results = JSON.parse(fs.readFileSync('/tmp/validation_results.json', 'utf-8'));
+              const valResults = JSON.parse(fs.readFileSync('/tmp/validation_results.json', 'utf-8'));
+              comment += '### ✅ Schema Validation\n';
+              comment += valResults.all_passed ? '**All contracts validated!**\n\n' : '**Validation failed**\n\n';
 
-              let comment = '## 📊 Schema Validation Results\n\n';
-
-              if (results.all_passed) {
-                comment += '✅ **All contracts validated and approved!**\n\n';
-              } else {
-                comment += '❌ **Validation failed for the following contracts:**\n\n';
-              }
-
-              comment += '| File | Status | Details |\n';
-              comment += '|------|--------|----------|\n';
-
-              results.results.forEach(result => {
-                const status = result.status === 'PASSED' ? '✅' : '❌';
-                const details = result.contract_name || result.reason || 'No details';
-                comment += `| ${result.file} | ${status} ${result.status} | ${details} |\n`;
+              comment += '| File | Status |\n';
+              comment += '|------|--------|\n';
+              valResults.results.forEach(r => {
+                comment += `| ${r.file} | ${r.status === 'PASSED' ? '✅' : '❌'} |\n`;
               });
-
-              comment += '\n---\n';
-
-              if (results.all_passed) {
-                comment += '🎉 This PR is ready to be merged automatically.';
-              } else {
-                comment += '🔧 Please fix the validation errors and push new commits.';
-              }
-
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-            } catch (error) {
-              console.log('Could not read validation results:', error);
+              comment += '\n';
+            } catch (e) {
+              console.log('Could not read validation results');
             }
 
-      - name: Auto-merge PR if validation passed
+            // Read iceberg results
+            try {
+              const icebergResults = JSON.parse(fs.readFileSync('/tmp/iceberg_results.json', 'utf-8'));
+              comment += '### 🗄️ Iceberg Table Creation\n';
+              comment += icebergResults.all_passed ? '**All tables created successfully!**\n\n' : '**Table creation failed**\n\n';
+
+              comment += '| Contract | Table | Status |\n';
+              comment += '|----------|-------|--------|\n';
+              icebergResults.results.forEach(r => {
+                const status = r.status === 'CREATED' ? '✅' : r.status === 'EXISTS' ? '⚠️' : '❌';
+                comment += `| ${r.contract} | ${r.table_name || 'N/A'} | ${status} ${r.status} |\n`;
+              });
+            } catch (e) {
+              console.log('Could not read iceberg results');
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Auto-merge PR if all checks passed
         if: success()
         uses: actions/github-script@v7
         with:
@@ -208,7 +286,6 @@ jobs:
               pull_number: context.issue.number
             });
 
-            // Check if PR is still open and all checks passed
             if (pullRequest.state === 'open') {
               try {
                 await github.rest.pulls.merge({
@@ -217,20 +294,20 @@ jobs:
                   pull_number: context.issue.number,
                   merge_method: 'squash',
                   commit_title: `✅ Merge approved contracts: ${pullRequest.title}`,
-                  commit_message: `Automatically merged by schema validation workflow.\n\nPR: #${context.issue.number}\n\nAll data contracts have been validated against the registry API.`
+                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created successfully`
                 });
 
                 console.log('✅ PR auto-merged successfully');
               } catch (error) {
                 if (error.message.includes('Pull Request is not mergeable')) {
-                  console.log('⚠️  PR is not in a mergeable state (conflicts or pending reviews)');
+                  console.log('⚠️  PR is not mergeable');
                 } else {
                   throw error;
                 }
               }
             }
 
-      - name: Report validation failure
+      - name: Report failure
         if: failure()
         uses: actions/github-script@v7
         with:
@@ -238,13 +315,13 @@ jobs:
             github.rest.checks.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              name: 'Schema Validation',
+              name: 'Contract Processing',
               head_sha: context.sha,
               status: 'completed',
               conclusion: 'failure',
               output: {
-                title: 'Schema Validation Failed',
-                summary: 'One or more contracts failed validation against the registry API',
-                text: 'Check the workflow logs and PR comments for details.'
+                title: 'Contract Processing Failed',
+                summary: 'Validation or table creation failed',
+                text: 'Check workflow logs and PR comments for details.'
               }
             });

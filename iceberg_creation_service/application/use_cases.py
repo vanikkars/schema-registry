@@ -86,9 +86,9 @@ class CreateTableUseCase:
                     )
                 )
 
-            # Create table
+            # Create table using contract_id as table name (consistent with registry_api)
             table = IcebergTable(
-                table_name=contract.get("name", "").replace("-", "_").lower(),
+                table_name=contract.get("contract_id", "").replace("-", "_").lower(),
                 contract_id=contract.get("contract_id"),
                 version=contract.get("version", 1),
                 columns=columns,

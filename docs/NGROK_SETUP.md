@@ -54,22 +54,40 @@ docker-compose up -d
 # Iceberg Service is running on http://localhost:8001
 ```
 
-### Step 2: Expose Both Services with ngrok (new terminal)
+### Step 2: Expose Services with ngrok (new terminal)
 
-**Option A: Expose both services (Recommended)**
+**⚠️ IMPORTANT - Free ngrok Limitations:**
+- ❌ Can only run ONE tunnel at a time (not multiple simultaneously)
+- ❌ No custom subdomains
+- ❌ URLs change every session
+
+**For Free ngrok Plan:**
+
+You have two options:
+
+**Option A: Expose only Registry API (Recommended for local testing)**
 ```bash
-# Terminal 2a: Expose Registry API
-ngrok http 8000 --subdomain=registry-api
-
-# Terminal 2b: Expose Iceberg Service (in another terminal)
-ngrok http 8001 --subdomain=iceberg-api
+# Terminal 2: Expose Registry API only
+ngrok http 8000
+# Note the URL: https://abc123def456.ngrok.io
+# This is your REGISTRY_API_URL
 ```
 
-**Option B: Expose with dynamic subdomains (Free ngrok)**
+Then skip Iceberg service testing in GitHub Actions, or:
+
+**Option B: Use ngrok Pro ($5/month) or free alternative**
+
+If you need both services exposed:
+- Upgrade to ngrok Pro (supports multiple tunnels + static domains)
+- Or use a free alternative like LocalTunnel, Expose, or Cloudflare Tunnel
+
+**For ngrok Pro Plan:**
 ```bash
-# Terminal 2: Start ngrok (exposes both)
-ngrok http 8000
-# Note the URL, e.g., https://abc123def456.ngrok.io
+# Terminal 2a: Expose Registry API
+ngrok http 8000 --domain=registry-api.ngrok.io
+
+# Terminal 2b: Expose Iceberg Service (in another terminal)
+ngrok http 8001 --domain=iceberg-api.ngrok.io
 ```
 
 You'll see output like:
@@ -85,30 +103,40 @@ Forwarding                    http://abc123def456.ngrok.io -> http://localhost:8
 Web Interface                 http://127.0.0.1:4040
 ```
 
-### Step 3: Copy the HTTPS URLs
+### Step 3: Copy the HTTPS URL
 
-For **Registry API**:
+**Free ngrok Plan:**
 ```
 https://abc123def456.ngrok.io
 ```
 
-For **Iceberg Service** (if using same ngrok instance):
-- If you exposed port 8000, use the same URL but requests will only reach port 8000
-- **Recommended**: Use separate ngrok instances for each service
-  - Registry API: `https://registry-api.ngrok.io`
-  - Iceberg Service: `https://iceberg-api.ngrok.io`
+⚠️ **Important:** This URL changes every time you restart ngrok! You'll need to update the GitHub secret each time.
+
+**Pro Plan:**
+```
+https://registry-api.ngrok.io  (static URL, no need to update)
+```
 
 ### Step 4: Set GitHub Secrets
+
+**For Free ngrok Plan (Registry API only):**
+
 1. Go to GitHub repository
 2. **Settings** → **Secrets and variables** → **Actions**
-3. Create first secret:
+3. Create secret:
    - Name: `REGISTRY_API_URL`
-   - Value: `https://abc123def456.ngrok.io` (or your ngrok URL)
+   - Value: `https://abc123def456.ngrok.io` (from your ngrok)
    - Click **Add secret**
-4. Create second secret:
-   - Name: `ICEBERG_SERVICE_URL`
-   - Value: `https://iceberg-api.ngrok.io` (or your Iceberg service URL)
-   - Click **Add secret**
+
+4. Leave `ICEBERG_SERVICE_URL` unset or set to your local URL (won't be reached from GitHub)
+
+**⚠️ Free ngrok users:** Update the `REGISTRY_API_URL` secret each time ngrok restarts!
+
+**For Pro Plan (Both Services):**
+
+1. Set `REGISTRY_API_URL` → `https://registry-api.ngrok.io`
+2. Set `ICEBERG_SERVICE_URL` → `https://iceberg-api.ngrok.io`
+3. URLs are static, no need to update
 
 ### Step 5: Create a Test PR
 Push a contract change and create a PR. GitHub Actions will now:
@@ -197,23 +225,30 @@ The workflow logs will show:
 
 ## Important Considerations
 
-### 1. ngrok URL Changes (Free Version)
-Free ngrok changes URL every time you restart:
-- ❌ URL is temporary
-- ✅ Good for testing
-- ❌ Bad for production
+### 1. ngrok Limitations (Free Version Only)
+
+**Free ngrok limitations:**
+- ❌ **Only ONE tunnel at a time** (can't run multiple ngrok instances)
+- ❌ URLs change every time you restart
+- ❌ Need to update GitHub secrets each time
+- ❌ No custom subdomains
 
 ```bash
 # Session 1:
 ngrok http 8000
 # URL: https://abc123def456.ngrok.io
+# ✅ Works
 
-# Restart...
-
-# Session 2:
-ngrok http 8000
-# URL: https://xyz789uvw456.ngrok.io (different!)
+# Try to start another tunnel:
+ngrok http 8001
+# ❌ ERROR: endpoint already online
+# Can't run both simultaneously on free plan
 ```
+
+**Solution:** 
+- Upgrade to ngrok Pro ($5/month) for multiple tunnels + static URLs
+- Or use LocalTunnel/Expose (free alternatives support multiple tunnels)
+- Or test locally without routing through ngrok
 
 ### 2. Keep ngrok Running
 ngrok must stay running while you test:
@@ -222,24 +257,32 @@ ngrok must stay running while you test:
 # Terminal 1: Start services
 docker-compose up -d
 
-# Terminal 2a: Start ngrok for Registry API (keep running)
+# Terminal 2: Start ngrok for Registry API (keep running)
 ngrok http 8000
+# Copy URL: https://abc123def456.ngrok.io
 
-# Terminal 2b: Start ngrok for Iceberg Service (in another terminal, keep running)
-ngrok http 8001
-
-# Terminal 3: Create PR and watch workflows
-# Workflows use ngrok URLs to reach both services
+# Terminal 3: Create PR and watch workflow
+# GitHub Actions uses ngrok URL to reach Registry API
 ```
 
-### 3. Update Secrets When URLs Change
-If ngrok URLs change, update GitHub secrets:
-1. Get new URLs from ngrok terminals
-2. Go to GitHub → Settings → Secrets
-3. Update:
-   - `REGISTRY_API_URL` with new Registry API URL
-   - `ICEBERG_SERVICE_URL` with new Iceberg Service URL
+**Note:** Free ngrok only allows ONE tunnel, so you can only expose the Registry API. The Iceberg service workflow will only work if:
+- You're using ngrok Pro
+- Or you manually test locally without GitHub Actions
+
+### 3. Update Secrets When URLs Change (Free ngrok)
+
+**Important for free ngrok users:** When you restart ngrok, the URL changes. You must update the GitHub secret:
+
+1. Get new URL from ngrok terminal
+2. Go to GitHub → Settings → Secrets and variables → Actions
+3. Update the secret:
+   - `REGISTRY_API_URL` → new URL
 4. Create another test PR
+
+**Workaround:** 
+- Use ngrok Pro for $5/month (supports multiple tunnels)
+- Or use LocalTunnel/Expose (free alternatives)
+- Or test locally without GitHub Actions
 
 ## Advanced Setup
 
@@ -297,19 +340,19 @@ Then use:
 ngrok start api
 ```
 
-### Option 4: Docker Compose Integration
+### Option 4: Docker Compose Integration (ngrok Pro only)
 
-Add ngrok services to your docker-compose.yml:
+**Note:** This example requires ngrok Pro for static domains. Free ngrok doesn't support the `--domain` flag.
+
+For **ngrok Pro**, add ngrok services to your docker-compose.yml:
 
 ```yaml
 services:
   registry_api:
-    # ... your API config ...
     ports:
       - "8000:8000"
 
   iceberg-creation:
-    # ... your Iceberg service config ...
     ports:
       - "8001:8001"
 
@@ -319,9 +362,7 @@ services:
       - NGROK_AUTHTOKEN=${NGROK_TOKEN}
     command: http registry_api:8000 --domain=registry-api.ngrok.io
     ports:
-      - "4040:4040"  # Web interface
-    depends_on:
-      - registry_api
+      - "4040:4040"
 
   ngrok-iceberg:
     image: ngrok/ngrok:latest
@@ -329,19 +370,19 @@ services:
       - NGROK_AUTHTOKEN=${NGROK_TOKEN}
     command: http iceberg-creation:8001 --domain=iceberg-api.ngrok.io
     ports:
-      - "4041:4041"  # Web interface
-    depends_on:
-      - iceberg-creation
+      - "4041:4041"
 ```
 
 Then:
 ```bash
 export NGROK_TOKEN=your_token
 docker-compose up
-# ngrok automatically starts with both services
+# ngrok automatically starts both services (Pro only)
 # Registry API: https://registry-api.ngrok.io
 # Iceberg Service: https://iceberg-api.ngrok.io
 ```
+
+**For free ngrok users:** Use separate terminal commands instead (see Quick Start)
 
 ## Troubleshooting
 
@@ -431,34 +472,36 @@ GitHub → Actions → [workflow] → [run]
 See all API requests and responses
 ```
 
-## Complete Workflow Example
+## Complete Workflow Example (Free ngrok)
 
 ### Terminal Setup
+
+**Free ngrok Note:** Can only expose Registry API (not both services simultaneously)
+
 ```bash
 # Terminal 1: Start services
 cd /path/to/schema-registry
 docker-compose up -d
 
-# Terminal 2a: Expose Registry API with ngrok
-ngrok http 8000 --subdomain=registry-api
-# Copy: https://registry-api.ngrok.io
+# Terminal 2: Expose Registry API with ngrok
+ngrok http 8000
+# Copy the URL: https://abc123def456.ngrok.io
 
-# Terminal 2b: Expose Iceberg Service with ngrok (in another terminal)
-ngrok http 8001 --subdomain=iceberg-api
-# Copy: https://iceberg-api.ngrok.io
-
-# Terminal 3: Set GitHub secrets (one-time)
-# Go to GitHub → Settings → Secrets
-# Create: REGISTRY_API_URL = https://registry-api.ngrok.io
-# Create: ICEBERG_SERVICE_URL = https://iceberg-api.ngrok.io
+# Terminal 3: Set GitHub secret (EVERY TIME URL CHANGES!)
+# Go to GitHub → Settings → Secrets and variables → Actions
+# Set: REGISTRY_API_URL = https://abc123def456.ngrok.io
+# Leave ICEBERG_SERVICE_URL empty (can't run multiple ngrok tunnels)
 
 # Terminal 4: Create test PR
 git checkout -b test-contract
 # Add a new contract file
 git add contracts/current/example/example_v1.json
+git commit -m "add example contract"
 git push origin test-contract
 # Open PR on GitHub
 # Watch Actions tab!
+# ✅ Schema validation workflow will run
+# ❌ Iceberg table creation won't reach the service (no tunnel available)
 ```
 
 ### What Happens
@@ -535,14 +578,21 @@ pkill ngrok
 open http://127.0.0.1:4040
 ```
 
-## Next Steps
+## Next Steps (Free ngrok)
+
+**For testing Schema Validation only (Free ngrok):**
 
 1. ✅ Install ngrok: `brew install ngrok`
 2. ✅ Start services: `docker-compose up -d`
-3. ✅ Run ngrok for Registry API: `ngrok http 8000 --subdomain=registry-api`
-4. ✅ Run ngrok for Iceberg Service: `ngrok http 8001 --subdomain=iceberg-api`
-5. ✅ Copy URLs and set GitHub secrets:
-   - `REGISTRY_API_URL`
-   - `ICEBERG_SERVICE_URL`
+3. ✅ Run ngrok: `ngrok http 8000`
+4. ✅ Copy ngrok URL
+5. ✅ Set GitHub secret:
+   - `REGISTRY_API_URL` = your ngrok URL
 6. ✅ Create test PR
-7. ✅ Watch both workflows run!
+7. ✅ Watch schema validation workflow run!
+8. ✅ **Remember:** Update secret each time ngrok restarts
+
+**To test both workflows, either:**
+- Upgrade to ngrok Pro ($5/month) for multiple tunnels
+- Use LocalTunnel or Expose (free alternatives)
+- Or test locally in separate terminal (doesn't go through GitHub Actions)

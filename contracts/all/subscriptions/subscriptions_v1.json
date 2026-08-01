@@ -1,6 +1,6 @@
 {
-  "contract_id": "order-v1",
-  "name": "Orders",
+  "contract_id": "subscriptions-v1",
+  "name": "Subscriptions",
   "description": "Schema for user records",
   "version": "1.0.0",
   "columns": [

@@ -45,8 +45,6 @@ class DataContract(BaseModel):
     metadata: ContractMetadata = Field(
         default_factory=ContractMetadata, description="Contract metadata"
     )
-    created_at: str = Field(..., description="Contract creation timestamp (ISO 8601)")
-    updated_at: str = Field(..., description="Contract last update timestamp (ISO 8601)")
 
     class Config:
         json_schema_extra = {
@@ -83,7 +81,5 @@ class DataContract(BaseModel):
                     "sla_uptime_percentage": 99.95,
                     "sla_max_latency_ms": 5000,
                 },
-                "created_at": "2026-07-26T09:44:45.962207+00:00",
-                "updated_at": "2026-07-26T09:44:45.962343+00:00",
             }
         }

@@ -33,7 +33,14 @@
       "data_type": "timestamp",
       "nullable": true,
       "description": "Timestamp of last login (added in v2, optional for backwards compatibility)"
+    },
+    {
+      "name": "is_active",
+      "data_type": "boolean",
+      "nullable": false,
+      "description": "Whether the user is active"
     }
+
   ],
   "metadata": {
     "data_owner": "User Management",

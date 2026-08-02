@@ -420,31 +420,33 @@ jobs:
 
                 comment += `| ${r.contract || 'N/A'} | ${r.table_name || 'N/A'} | ${statusIcon} ${statusText} | ${details} |\n`;
 
-                // Add detailed change breakdown for UPDATED status
+                // Add detailed change breakdown for UPDATED status (outside table)
                 if (r.status === 'UPDATED' && r.change_details) {
                   const changes = r.change_details;
+
                   if (changes.added_columns && changes.added_columns.length > 0) {
-                    comment += '| | | | <details><summary>Added columns</summary>\n\n';
+                    comment += '\n**➕ Added Columns:**\n';
                     changes.added_columns.forEach(col => {
                       const desc = col.description ? ` - ${col.description}` : '';
                       comment += `- **${col.name}** (\`${col.type}\`)${desc}\n`;
                     });
-                    comment += '</details> |\n';
                   }
+
                   if (changes.removed_columns && changes.removed_columns.length > 0) {
-                    comment += '| | | | <details><summary>Removed columns</summary>\n\n';
+                    comment += '\n**➖ Removed Columns:**\n';
                     changes.removed_columns.forEach(col => {
                       comment += `- **${col.name}** (\`${col.type}\`)\n`;
                     });
-                    comment += '</details> |\n';
                   }
+
                   if (changes.modified_columns && changes.modified_columns.length > 0) {
-                    comment += '| | | | <details><summary>Modified columns</summary>\n\n';
+                    comment += '\n**✏️ Modified Columns:**\n';
                     changes.modified_columns.forEach(col => {
                       comment += `- **${col.name}**: \`${col.old_type}\` → \`${col.new_type}\`\n`;
                     });
-                    comment += '</details> |\n';
                   }
+
+                  comment += '\n';
                 }
               });
             } catch (e) {

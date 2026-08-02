@@ -1,4 +1,4 @@
-name: Schema Validation & Auto-Merge
+name: Contract Validation and Iceberg Provisioning
 
 on:
   pull_request:
@@ -129,12 +129,12 @@ jobs:
                       'reason': f'Invalid JSON: {str(e)}'
                   })
               except FileNotFoundError:
-                  print(f"❌ File not found: {file_path}")
-                  all_passed = False
+                  print(f"⚠️  File not found: {file_path}")
+                  print("💡 Contract may have been decommissioned. Schema kept in repo, Iceberg table retained.")
                   validation_results.append({
                       'file': file_path,
-                      'status': 'FAILED',
-                      'reason': 'File not found'
+                      'status': 'SKIPPED',
+                      'reason': 'File not found (decommissioned contract)'
                   })
 
           # Write results to file for next step
@@ -144,11 +144,20 @@ jobs:
                   'results': validation_results
               }, f)
 
-          if not all_passed:
-              print("\n❌ Validation failed")
+          # Check if all are skipped or passed (skipped files don't count as failures)
+          has_failures = any(r['status'] == 'FAILED' for r in validation_results)
+
+          if has_failures:
+              print("\n❌ Validation failed for some contracts")
               sys.exit(1)
           else:
-              print("\n✅ All contracts validated successfully")
+              skipped_count = sum(1 for r in validation_results if r['status'] == 'SKIPPED')
+              passed_count = sum(1 for r in validation_results if r['status'] == 'PASSED')
+
+              if skipped_count > 0:
+                  print(f"\n✅ Validation passed ({passed_count} validated, {skipped_count} skipped/decommissioned)")
+              else:
+                  print("\n✅ All contracts validated successfully")
               sys.exit(0)
           EOF
 
@@ -231,6 +240,15 @@ jobs:
                       'error': 'Cannot reach Iceberg service'
                   })
 
+              except FileNotFoundError:
+                  print(f"⚠️  File not found: {file_path}")
+                  print("💡 Contract decommissioned - Iceberg table will be retained")
+                  iceberg_results.append({
+                      'file': file_path,
+                      'status': 'SKIPPED',
+                      'error': 'File not found (decommissioned contract)'
+                  })
+
               except json.JSONDecodeError as e:
                   print(f"❌ Invalid JSON: {e}")
                   all_passed = False
@@ -246,7 +264,9 @@ jobs:
                   'results': iceberg_results
               }, f)
 
-          sys.exit(0 if all_passed else 1)
+          # Only fail if there are actual errors, not skipped files
+          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'SKIPPED'] for r in iceberg_results)
+          sys.exit(0 if not has_errors else 1)
           EOF
 
       - name: Comment validation & table creation results on PR
@@ -264,10 +284,12 @@ jobs:
               comment += '### ✅ Schema Validation\n';
               comment += valResults.all_passed ? '**All contracts validated!**\n\n' : '**Validation failed**\n\n';
 
-              comment += '| File | Status |\n';
-              comment += '|------|--------|\n';
+              comment += '| File | Status | Notes |\n';
+              comment += '|------|--------|-------|\n';
               valResults.results.forEach(r => {
-                comment += `| ${r.file} | ${r.status === 'PASSED' ? '✅' : '❌'} |\n`;
+                const statusIcon = r.status === 'PASSED' ? '✅' : r.status === 'SKIPPED' ? '⚠️' : '❌';
+                const notes = r.reason ? ` - ${r.reason}` : '';
+                comment += `| ${r.file} | ${statusIcon} ${r.status} | ${notes} |\n`;
               });
               comment += '\n';
             } catch (e) {
@@ -280,11 +302,25 @@ jobs:
               comment += '### 🗄️ Iceberg Table Creation\n';
               comment += icebergResults.all_passed ? '**All tables created successfully!**\n\n' : '**Table creation failed**\n\n';
 
-              comment += '| Contract | Table | Status |\n';
-              comment += '|----------|-------|--------|\n';
+              comment += '| Contract | Table | Status | Notes |\n';
+              comment += '|----------|-------|--------|-------|\n';
               icebergResults.results.forEach(r => {
-                const status = r.status === 'CREATED' ? '✅' : r.status === 'EXISTS' ? '⚠️' : '❌';
-                comment += `| ${r.contract} | ${r.table_name || 'N/A'} | ${status} ${r.status} |\n`;
+                let statusIcon, statusText;
+                if (r.status === 'CREATED') {
+                  statusIcon = '✅';
+                  statusText = 'CREATED';
+                } else if (r.status === 'EXISTS') {
+                  statusIcon = '⚠️';
+                  statusText = 'EXISTS';
+                } else if (r.status === 'SKIPPED') {
+                  statusIcon = '⏭️';
+                  statusText = 'SKIPPED';
+                } else {
+                  statusIcon = '❌';
+                  statusText = r.status;
+                }
+                const notes = r.error ? ` - ${r.error}` : '';
+                comment += `| ${r.contract || 'N/A'} | ${r.table_name || 'N/A'} | ${statusIcon} ${statusText} | ${notes} |\n`;
               });
             } catch (e) {
               console.log('Could not read iceberg results');

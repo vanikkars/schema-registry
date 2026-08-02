@@ -83,22 +83,26 @@ jobs:
                       })
                       continue
 
-                  # Send to registry API
-                  print(f"📤 Sending contract '{contract.get('name')}' to registry...")
+                  # Send to registry API using PUT (idempotent, works for create or update)
+                  contract_id = contract.get('contract_id', 'unknown')
+                  print(f"📤 Registering contract '{contract.get('name')}' (ID: {contract_id})...")
 
                   try:
-                      response = requests.post(
-                          f"{registry_url}/api/v1/schemas",
+                      response = requests.put(
+                          f"{registry_url}/api/v1/schemas/{contract_id}",
                           json=contract,
                           timeout=30
                       )
 
                       if response.status_code in [200, 201]:
-                          print(f"✅ Contract validated and accepted by registry")
+                          is_new = response.status_code == 201
+                          action = "created" if is_new else "updated"
+                          print(f"✅ Contract {action} and validated by registry")
                           validation_results.append({
                               'file': file_path,
                               'status': 'PASSED',
-                              'contract_name': contract.get('name')
+                              'contract_name': contract.get('name'),
+                              'action': action
                           })
                       else:
                           print(f"❌ Registry rejected contract: {response.status_code}")
@@ -365,12 +369,12 @@ jobs:
               comment += '### ✅ Schema Validation\n';
               comment += valResults.all_passed ? '**All contracts validated!**\n\n' : '**Validation failed**\n\n';
 
-              comment += '| File | Status | Notes |\n';
-              comment += '|------|--------|-------|\n';
+              comment += '| File | Status | Action |\n';
+              comment += '|------|--------|--------|\n';
               valResults.results.forEach(r => {
                 const statusIcon = r.status === 'PASSED' ? '✅' : r.status === 'SKIPPED' ? '⚠️' : '❌';
-                const notes = r.reason ? ` - ${r.reason}` : '';
-                comment += `| ${r.file} | ${statusIcon} ${r.status} | ${notes} |\n`;
+                const action = r.action ? r.action : (r.reason ? `${r.reason}` : '');
+                comment += `| ${r.file} | ${statusIcon} ${r.status} | ${action} |\n`;
               });
               comment += '\n';
             } catch (e) {

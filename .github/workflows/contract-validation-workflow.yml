@@ -500,7 +500,7 @@ jobs:
             let approvalComment = '## ✅ Ready for Merge\n\n';
             approvalComment += 'All validations and table creations passed successfully!\n\n';
             approvalComment += '**To merge this PR, reply with:**\n';
-            approvalComment += '```\n/approve-merge\n```\n\n';
+            approvalComment += '```\napprove-merge\n```\n\n';
             approvalComment += 'This will automatically merge the PR with all changes.\n';
 
             await github.rest.issues.createComment({

@@ -110,14 +110,23 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 logger.info(f"Current schema def length: {len(current_schema_def)}, New schema def length: {len(schema_definition)}")
                 if current_schema_def != schema_definition:
                     logger.info(f"Schema definition changed for {schema_name}, registering new version")
-                    version_result = self.glue.register_schema_version(
-                        SchemaId={
-                            "RegistryName": self.registry_name,
-                            "SchemaName": schema_name,
-                        },
-                        SchemaDefinition=schema_definition,
-                    )
-                    logger.info(f"Registered new version {version_result.get('VersionNumber')} for schema {schema_name}")
+                    try:
+                        version_result = self.glue.register_schema_version(
+                            SchemaId={
+                                "RegistryName": self.registry_name,
+                                "SchemaName": schema_name,
+                            },
+                            SchemaDefinition=schema_definition,
+                        )
+                        logger.info(f"Registered new version {version_result.get('VersionNumber')} for schema {schema_name}")
+                    except self.glue.exceptions.InvalidInputException as e:
+                        # Compatibility check failed
+                        error_msg = str(e)
+                        logger.error(f"Schema registration failed due to compatibility violation: {error_msg}")
+                        raise ValueError(f"Schema change violates {compatibility} compatibility: {error_msg}")
+                    except Exception as e:
+                        logger.error(f"Failed to register new schema version: {str(e)}")
+                        raise
                 else:
                     logger.info(f"Schema definition unchanged for {schema_name}, not registering new version")
 
@@ -137,8 +146,11 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                         "SchemaName": schema_name,
                     }
                 )
+            except ValueError as e:
+                # Re-raise ValueError (compatibility violations) without swallowing
+                raise e
             except Exception as e:
-                # Error occurred, return existing schema
+                # Error occurred, return existing schema (for non-critical errors)
                 logger.warning(f"Error while processing schema {schema_name}: {str(e)}")
                 response = existing
         except self.glue.exceptions.EntityNotFoundException:

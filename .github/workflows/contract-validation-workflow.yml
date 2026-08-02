@@ -479,7 +479,7 @@ jobs:
               }
             });
 
-      - name: Auto-merge PR if all checks passed
+      - name: Request human approval for merge
         if: success()
         uses: actions/github-script@v7
         with:
@@ -495,13 +495,82 @@ jobs:
               );
 
               if (hasHttpErrors) {
-                console.log('❌ HTTP error detected in Iceberg results - aborting auto-merge');
+                console.log('❌ HTTP error detected in Iceberg results - aborting');
                 process.exit(1);
               }
             } catch (e) {
               console.log('Could not read Iceberg results');
             }
 
+            // Build approval request comment
+            let approvalComment = '## ✅ Ready for Merge\n\n';
+            approvalComment += 'All validations and table creations passed successfully!\n\n';
+            approvalComment += '**To merge this PR, please comment:**\n';
+            approvalComment += '```\n@github-actions approve-merge\n```\n\n';
+            approvalComment += 'This will automatically merge the PR with all changes.\n';
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: approvalComment
+            });
+
+            console.log('✅ Approval request comment posted');
+
+      - name: Listen for approval and merge
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Wait for approval comment (with timeout)
+            const maxWaitTime = 24 * 60 * 60 * 1000; // 24 hours
+            const startTime = Date.now();
+            const pollInterval = 30000; // Check every 30 seconds
+
+            let approved = false;
+            let checkCount = 0;
+            const maxChecks = (maxWaitTime / pollInterval);
+
+            while (!approved && checkCount < maxChecks) {
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
+              checkCount++;
+
+              try {
+                const comments = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number
+                });
+
+                // Check for approval comment (by any user with write access)
+                approved = comments.data.some(comment =>
+                  comment.body.includes('@github-actions approve-merge') ||
+                  comment.body.includes('approve-merge')
+                );
+
+                if (approved) {
+                  console.log('✅ Approval found! Proceeding with merge...');
+                  break;
+                }
+
+                if (checkCount % 4 === 0) { // Log every 2 minutes
+                  console.log(`⏳ Waiting for approval... (${Math.floor((Date.now() - startTime) / 1000)}s elapsed)`);
+                }
+              } catch (error) {
+                console.log('Error checking for approval:', error);
+              }
+            }
+
+            if (!approved) {
+              console.log('⏱️  Approval timeout - PR was not merged');
+              core.setFailed('PR approval timeout after 24 hours');
+              process.exit(1);
+            }
+
+            // Proceed with merge
             const { data: pullRequest } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -516,13 +585,22 @@ jobs:
                   pull_number: context.issue.number,
                   merge_method: 'squash',
                   commit_title: `✅ Merge approved contracts: ${pullRequest.title}`,
-                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created/updated successfully`
+                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created/updated successfully\n- Approved by: human review`
                 });
 
-                console.log('✅ PR auto-merged successfully');
+                console.log('✅ PR merged successfully');
+
+                // Post success comment
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: '## 🎉 Merge Complete\n\nPR has been successfully merged and all changes are now in production!'
+                });
               } catch (error) {
                 if (error.message.includes('Pull Request is not mergeable')) {
                   console.log('⚠️  PR is not mergeable');
+                  core.setFailed('PR is not mergeable - check for conflicts or branch protection rules');
                 } else {
                   throw error;
                 }

@@ -1,5 +1,6 @@
 """FastAPI HTTP router for schema registry endpoints (inbound adapter)."""
 
+import logging
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from typing import Optional
 
@@ -21,6 +22,8 @@ from registry_api.application.use_cases import (
     DeleteSchemaUseCase,
 )
 from .dto import build_schema_response
+
+logger = logging.getLogger(__name__)
 
 
 def create_router(
@@ -53,25 +56,38 @@ def create_router(
         Returns 201 Created with Location header pointing to created resource.
         """
         try:
+            logger.info(f"Creating schema for contract: {contract.contract_id}")
             result = register_schema_use_case.execute(contract)
+            logger.info(f"Successfully created schema: {contract.contract_id}")
             response.headers["Location"] = f"/api/v1/schemas/{contract.contract_id}"
             return {"data": result}
         except RegistryNotFoundError as e:
+            logger.error(f"Registry not found: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
             )
         except TableCreationError as e:
+            logger.error(f"Table creation error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )
         except SchemaRegistryError as e:
+            logger.error(f"Schema registry error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )
+        except ValueError as e:
+            # Catch ValueError from compatibility violations
+            logger.error(f"Schema validation failed for {contract.contract_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Schema validation failed: {str(e)}"
+            )
         except Exception as e:
+            logger.error(f"Unexpected error creating schema {contract.contract_id}: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create schema",
+                detail=f"Failed to create schema: {str(e)}"
             )
 
     @router.get("")

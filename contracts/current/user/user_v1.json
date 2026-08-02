@@ -51,8 +51,13 @@
       "data_type": "float",
       "nullable": false,
       "description": "The user score2"
+    },
+    {
+      "name": "score3",
+      "data_type": "float",
+      "nullable": false,
+      "description": "The user score3"
     }
-
   ],
   "metadata": {
     "data_owner": "User Management",

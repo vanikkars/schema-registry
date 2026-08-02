@@ -122,10 +122,11 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                     except self.glue.exceptions.InvalidInputException as e:
                         # Compatibility check failed
                         error_msg = str(e)
-                        logger.error(f"Schema registration failed due to compatibility violation: {error_msg}")
+                        logger.error(f"❌ Schema registration FAILED due to compatibility violation for {schema_name}")
+                        logger.error(f"Error details: {error_msg}")
                         raise ValueError(f"Schema change violates {compatibility} compatibility: {error_msg}")
                     except Exception as e:
-                        logger.error(f"Failed to register new schema version: {str(e)}")
+                        logger.error(f"Failed to register new schema version: {str(e)}", exc_info=True)
                         raise
                 else:
                     logger.info(f"Schema definition unchanged for {schema_name}, not registering new version")
@@ -148,10 +149,11 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 )
             except ValueError as e:
                 # Re-raise ValueError (compatibility violations) without swallowing
+                logger.error(f"❌ ValueError caught - re-raising compatibility violation: {str(e)}")
                 raise e
             except Exception as e:
                 # Error occurred, return existing schema (for non-critical errors)
-                logger.warning(f"Error while processing schema {schema_name}: {str(e)}")
+                logger.warning(f"Error while processing schema {schema_name}: {str(e)}", exc_info=True)
                 response = existing
         except self.glue.exceptions.EntityNotFoundException:
             # Create new schema
@@ -165,7 +167,9 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 Tags=tags,
             )
 
-        return response.get("SchemaArn", "")
+        schema_arn = response.get("SchemaArn", "")
+        logger.info(f"✅ Successfully registered schema {schema_name} with ARN: {schema_arn}")
+        return schema_arn
 
     def get_schema(self, schema_name: str) -> dict:
         """Get details of a schema by name.

@@ -58,8 +58,47 @@ class AwsGlueIcebergAdapter:
             raise TableCreationError(f"Failed to create table: {str(e)}")
 
     async def get_by_name(self, table_name: str, database_name: str = "iceberg_tables") -> Optional[IcebergTable]:
-        """Get table from Glue - returns None as we don't track full state."""
-        return None  # Simplified for now
+        """Get table from Glue and reconstruct as IcebergTable object."""
+        try:
+            response = self.glue.get_table(DatabaseName=database_name, Name=table_name)
+            table_data = response["Table"]
+
+            # Reconstruct columns from Glue format
+            from iceberg_creation_service.domain.models import DataType, Column
+
+            columns = []
+            for col in table_data.get("StorageDescriptor", {}).get("Columns", []):
+                try:
+                    data_type = DataType[col["Type"].upper()]
+                except (KeyError, ValueError):
+                    logger.warning(f"Unknown data type {col['Type']}, skipping column {col['Name']}")
+                    continue
+
+                columns.append(Column(
+                    name=col["Name"],
+                    data_type=data_type,
+                    description=col.get("Comment")
+                ))
+
+            # Extract metadata from table parameters
+            params = table_data.get("Parameters", {})
+
+            return IcebergTable(
+                table_name=table_name,
+                contract_id=params.get("contract_id", table_name),
+                version=int(params.get("iceberg_table_version", 1)),
+                columns=columns,
+                database_name=database_name,
+                description=table_data.get("Description"),
+                data_owner=params.get("data_owner"),
+                data_steward=params.get("data_steward"),
+                s3_location=table_data.get("StorageDescriptor", {}).get("Location")
+            )
+        except self.glue.exceptions.EntityNotFoundException:
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving table: {str(e)}")
+            return None
 
     async def exists(self, table_name: str, database_name: str = "iceberg_tables") -> bool:
         """Check if table exists in Glue."""

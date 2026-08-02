@@ -94,6 +94,7 @@ class IcebergTable:
         return {
             "EXTERNAL": "TRUE",
             "table_type": "ICEBERG",
+            "contract_id": self.contract_id,
             "iceberg_table_version": str(self.version),
             "created_at": self.created_at.isoformat(),
             "data_owner": self.data_owner or "Unknown",

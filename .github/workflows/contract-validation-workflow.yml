@@ -193,8 +193,9 @@ jobs:
                       contract = json.load(f)
 
                   contract_name = contract.get('name')
-                  table_name = contract.get('contract_id', '').replace('-', '_').lower()
-                  print(f"📤 Calling Iceberg service for {contract_name}...")
+                  contract_id = contract.get('contract_id', '')
+                  table_name = contract_id.replace('-', '_').lower()
+                  print(f"📤 Calling Iceberg service for {contract_name} (table: {table_name})...")
 
                   # Try to create table
                   create_response = requests.post(

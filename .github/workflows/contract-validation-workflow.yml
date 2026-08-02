@@ -329,7 +329,7 @@ jobs:
               }, f)
 
           # Only fail if there are actual errors, not skipped files or existing tables
-          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'SKIPPED'] for r in iceberg_results)
+          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'UNCHANGED', 'SKIPPED'] for r in iceberg_results)
 
           # Also fail if there are any HTTP errors
           has_http_errors = any('HTTP' in str(r.get('error', '')) or 'http' in str(r.get('error', '')).lower() for r in iceberg_results)

@@ -91,7 +91,7 @@ def create_app() -> FastAPI:
     async def update_table_schema(table_name: str, contract: dict) -> dict:
         """Update an existing table's schema."""
         try:
-            logger.info(f"API: Updating table {table_name}")
+            logger.info(f"API: Updating table {table_name} with contract {contract.get('contract_id')}")
             result = await update_table_use_case.execute(table_name, contract)
             return {"data": result}
         except TableNotFoundError as e:
@@ -106,10 +106,10 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )
         except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
+            logger.error(f"Unexpected error updating table {table_name}: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Internal server error",
+                detail=f"Failed to update table: {str(e)}",
             )
 
     @app.get("/api/v1/tables/{table_name}", status_code=status.HTTP_200_OK)

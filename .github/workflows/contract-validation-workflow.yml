@@ -244,12 +244,14 @@ jobs:
                                       'table_name': result.get('table_name')
                                   })
                           else:
-                              print(f"⚠️  Could not update schema (HTTP {update_response.status_code}), keeping existing table")
+                              error_msg = update_response.text if update_response.text else f"HTTP {update_response.status_code}"
+                              print(f"⚠️  Could not update schema ({error_msg}), keeping existing table")
                               iceberg_results.append({
                                   'file': file_path,
                                   'contract': contract_name,
                                   'status': 'EXISTS',
-                                  'table_name': result.get('table_name')
+                                  'table_name': result.get('table_name'),
+                                  'error': error_msg
                               })
                       else:
                           print(f"❌ Unexpected response: {result}")
@@ -306,6 +308,14 @@ jobs:
 
           # Only fail if there are actual errors, not skipped files or existing tables
           has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'SKIPPED'] for r in iceberg_results)
+
+          # Also fail if there are any HTTP errors
+          has_http_errors = any('HTTP' in str(r.get('error', '')) or 'http' in str(r.get('error', '')).lower() for r in iceberg_results)
+
+          if has_http_errors:
+              print("\n❌ HTTP error during Iceberg table operations")
+              sys.exit(1)
+
           sys.exit(0 if not has_errors else 1)
           EOF
 
@@ -400,6 +410,24 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+
+            // Check if there are any HTTP errors in Iceberg results
+            let hasHttpErrors = false;
+            try {
+              const icebergResults = JSON.parse(fs.readFileSync('/tmp/iceberg_results.json', 'utf-8'));
+              hasHttpErrors = icebergResults.results.some(r =>
+                r.error && (r.error.toUpperCase().includes('HTTP') || r.error.includes('Cannot connect'))
+              );
+
+              if (hasHttpErrors) {
+                console.log('❌ HTTP error detected in Iceberg results - aborting auto-merge');
+                process.exit(1);
+              }
+            } catch (e) {
+              console.log('Could not read Iceberg results');
+            }
+
             const { data: pullRequest } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -414,7 +442,7 @@ jobs:
                   pull_number: context.issue.number,
                   merge_method: 'squash',
                   commit_title: `✅ Merge approved contracts: ${pullRequest.title}`,
-                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created successfully`
+                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created/updated successfully`
                 });
 
                 console.log('✅ PR auto-merged successfully');

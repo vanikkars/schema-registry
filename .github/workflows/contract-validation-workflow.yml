@@ -221,7 +221,7 @@ jobs:
                               'status': 'CREATED',
                               'table_name': result.get('table_name')
                           })
-                      elif status_value == 'updated' or (status_value == 'exists' and not is_new):
+                      elif status_value == 'updated':
                           print(f"✅ Table updated: {result.get('table_name')}")
                           table_name_result = result.get('table_name')
                           change_summary = result.get('change_summary', {})
@@ -249,8 +249,6 @@ jobs:
 
                               for col in change_details.get('modified_columns', []):
                                   print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
-                          else:
-                              print(f"   No schema changes detected")
 
                           iceberg_results.append({
                               'file': file_path,
@@ -259,6 +257,14 @@ jobs:
                               'table_name': table_name_result,
                               'changes': change_summary,
                               'change_details': change_details
+                          })
+                      elif status_value == 'exists' and not is_new:
+                          print(f"⏭️  Table unchanged: {result.get('table_name')}")
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UNCHANGED',
+                              'table_name': result.get('table_name')
                           })
                       else:
                           print(f"❌ Unexpected response: {result}")
@@ -370,6 +376,9 @@ jobs:
                 } else if (r.status === 'UPDATED') {
                   statusIcon = '✅';
                   statusText = 'UPDATED';
+                } else if (r.status === 'UNCHANGED') {
+                  statusIcon = '✔️';
+                  statusText = 'UNCHANGED';
                 } else if (r.status === 'EXISTS') {
                   statusIcon = '⚠️';
                   statusText = 'EXISTS';

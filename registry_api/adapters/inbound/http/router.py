@@ -1,5 +1,6 @@
 """FastAPI HTTP router for schema registry endpoints (inbound adapter)."""
 
+import logging
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from typing import Optional
 
@@ -21,6 +22,8 @@ from registry_api.application.use_cases import (
     DeleteSchemaUseCase,
 )
 from .dto import build_schema_response
+
+logger = logging.getLogger(__name__)
 
 
 def create_router(
@@ -48,30 +51,100 @@ def create_router(
 
     @router.post("", status_code=status.HTTP_201_CREATED)
     async def create_schema(contract: DataContract, response: Response) -> dict:
-        """Create a new schema in AWS Glue Schema Registry and Iceberg table.
+        """Create a new schema in AWS Glue Schema Registry.
 
-        Returns 201 Created with Location header pointing to created resource.
+        Returns 201 Created if schema is new.
+        Returns 409 Conflict if schema already exists (use PUT to update).
         """
         try:
+            logger.info(f"POST: Creating schema for contract: {contract.contract_id}")
             result = register_schema_use_case.execute(contract)
+            logger.info(f"Successfully created schema: {contract.contract_id}")
             response.headers["Location"] = f"/api/v1/schemas/{contract.contract_id}"
             return {"data": result}
         except RegistryNotFoundError as e:
+            logger.error(f"Registry not found: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
             )
         except TableCreationError as e:
+            logger.error(f"Table creation error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )
         except SchemaRegistryError as e:
+            logger.error(f"Schema registry error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )
+        except ValueError as e:
+            # Catch ValueError from compatibility violations
+            logger.error(f"Schema validation failed for {contract.contract_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Schema validation failed: {str(e)}"
+            )
         except Exception as e:
+            logger.error(f"Unexpected error creating schema {contract.contract_id}: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create schema",
+                detail=f"Failed to create schema: {str(e)}"
+            )
+
+    @router.put("/{schema_name}", status_code=status.HTTP_200_OK)
+    async def update_schema(schema_name: str, contract: DataContract, response: Response) -> dict:
+        """Create or update a schema in AWS Glue Schema Registry.
+
+        Returns 201 Created if new, 200 OK if updated.
+        """
+        if contract.contract_id != schema_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Schema name mismatch: URL has '{schema_name}' but contract has '{contract.contract_id}'"
+            )
+
+        try:
+            logger.info(f"PUT: Updating/creating schema for contract: {contract.contract_id}")
+            result = register_schema_use_case.execute(contract)
+            latest_version = result.get("schema", {}).get("latest_version", 0)
+            is_new = latest_version == 1
+
+            if is_new:
+                response.status_code = status.HTTP_201_CREATED
+                logger.info(f"Created new schema: {contract.contract_id}")
+            else:
+                response.status_code = status.HTTP_200_OK
+                logger.info(f"Updated schema: {contract.contract_id} (version {latest_version})")
+
+            response.headers["Location"] = f"/api/v1/schemas/{contract.contract_id}"
+            return {"data": result}
+
+        except RegistryNotFoundError as e:
+            logger.error(f"Registry not found: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+            )
+        except TableCreationError as e:
+            logger.error(f"Table creation error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
+        except SchemaRegistryError as e:
+            logger.error(f"Schema registry error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
+        except ValueError as e:
+            logger.error(f"Schema validation failed for {contract.contract_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Schema validation failed: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error updating schema {contract.contract_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update schema: {str(e)}"
             )
 
     @router.get("")

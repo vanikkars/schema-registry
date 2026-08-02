@@ -83,22 +83,26 @@ jobs:
                       })
                       continue
 
-                  # Send to registry API
-                  print(f"📤 Sending contract '{contract.get('name')}' to registry...")
+                  # Send to registry API using PUT (idempotent, works for create or update)
+                  contract_id = contract.get('contract_id', 'unknown')
+                  print(f"📤 Registering contract '{contract.get('name')}' (ID: {contract_id})...")
 
                   try:
-                      response = requests.post(
-                          f"{registry_url}/api/v1/schemas",
+                      response = requests.put(
+                          f"{registry_url}/api/v1/schemas/{contract_id}",
                           json=contract,
                           timeout=30
                       )
 
                       if response.status_code in [200, 201]:
-                          print(f"✅ Contract validated and accepted by registry")
+                          is_new = response.status_code == 201
+                          action = "created" if is_new else "updated"
+                          print(f"✅ Contract {action} and validated by registry")
                           validation_results.append({
                               'file': file_path,
                               'status': 'PASSED',
-                              'contract_name': contract.get('name')
+                              'contract_name': contract.get('name'),
+                              'action': action
                           })
                       else:
                           print(f"❌ Registry rejected contract: {response.status_code}")
@@ -195,20 +199,21 @@ jobs:
                   contract_name = contract.get('name')
                   contract_id = contract.get('contract_id', '')
                   table_name = contract_id.replace('-', '_').lower()
-                  print(f"📤 Calling Iceberg service for {contract_name} (table: {table_name})...")
+                  print(f"📤 Registering Iceberg table for {contract_name} (table: {table_name})...")
 
-                  # Try to create table
-                  create_response = requests.post(
-                      f"{iceberg_url}/api/v1/tables",
+                  # Use PUT for idempotent create/update
+                  response = requests.put(
+                      f"{iceberg_url}/api/v1/tables/{table_name}",
                       json=contract,
                       timeout=30
                   )
 
-                  if create_response.status_code == 201:
-                      result = create_response.json().get('data', {})
+                  if response.status_code in [200, 201]:
+                      result = response.json().get('data', {})
                       status_value = result.get('status')
+                      is_new = response.status_code == 201
 
-                      if status_value == 'created':
+                      if status_value == 'created' or is_new:
                           print(f"✅ Table created: {result.get('table_name')}")
                           iceberg_results.append({
                               'file': file_path,
@@ -216,74 +221,59 @@ jobs:
                               'status': 'CREATED',
                               'table_name': result.get('table_name')
                           })
-                      elif status_value == 'exists':
-                          print(f"⚠️  Table exists: {result.get('table_name')}, attempting schema update...")
-                          # Table exists, try to update its schema
-                          update_response = requests.post(
-                              f"{iceberg_url}/api/v1/tables/{table_name}/schema",
-                              json=contract,
-                              timeout=30
-                          )
+                      elif status_value == 'updated':
+                          print(f"✅ Table updated: {result.get('table_name')}")
+                          table_name_result = result.get('table_name')
+                          change_summary = result.get('change_summary', {})
+                          change_details = result.get('change_details', {})
+                          old_version = result.get('old_version')
+                          new_version = result.get('new_version')
 
-                          if update_response.status_code == 200:
-                              update_result = update_response.json().get('data', {})
-                              if update_result.get('status') == 'updated':
-                                  table_name_result = result.get('table_name')
-                                  change_summary = update_result.get('change_summary', {})
-                                  change_details = update_result.get('change_details', {})
-                                  old_version = update_result.get('old_version')
-                                  new_version = update_result.get('new_version')
+                          print(f"   Version: {old_version} → {new_version}")
 
-                                  print(f"✅ Table schema updated: {table_name_result}")
-                                  print(f"   Version: {old_version} → {new_version}")
+                          # Print summary
+                          added_count = change_summary.get('added', 0)
+                          removed_count = change_summary.get('removed', 0)
+                          modified_count = change_summary.get('modified', 0)
 
-                                  # Print summary
-                                  added_count = change_summary.get('added', 0)
-                                  removed_count = change_summary.get('removed', 0)
-                                  modified_count = change_summary.get('modified', 0)
+                          if added_count > 0 or removed_count > 0 or modified_count > 0:
+                              print(f"   Changes: +{added_count} -{removed_count} ~{modified_count}")
 
-                                  if added_count > 0 or removed_count > 0 or modified_count > 0:
-                                      print(f"   Changes: +{added_count} -{removed_count} ~{modified_count}")
+                              # Print detailed changes
+                              for col in change_details.get('added_columns', []):
+                                  desc = f" - {col['description']}" if col['description'] else ""
+                                  print(f"     ➕ {col['name']}: {col['type']}{desc}")
 
-                                      # Print detailed changes
-                                      for col in change_details.get('added_columns', []):
-                                          desc = f" - {col['description']}" if col['description'] else ""
-                                          print(f"     ➕ {col['name']}: {col['type']}{desc}")
+                              for col in change_details.get('removed_columns', []):
+                                  print(f"     ➖ {col['name']}: {col['type']}")
 
-                                      for col in change_details.get('removed_columns', []):
-                                          print(f"     ➖ {col['name']}: {col['type']}")
+                              for col in change_details.get('modified_columns', []):
+                                  print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
 
-                                      for col in change_details.get('modified_columns', []):
-                                          print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
-                                  else:
-                                      print(f"   No schema changes detected")
-
-                                  iceberg_results.append({
-                                      'file': file_path,
-                                      'contract': contract_name,
-                                      'status': 'UPDATED',
-                                      'table_name': table_name_result,
-                                      'changes': change_summary,
-                                      'change_details': change_details
-                                  })
-                              else:
-                                  print(f"⚠️  Schema unchanged or no updates needed: {result.get('table_name')}")
-                                  iceberg_results.append({
-                                      'file': file_path,
-                                      'contract': contract_name,
-                                      'status': 'EXISTS',
-                                      'table_name': result.get('table_name')
-                                  })
-                          else:
-                              error_msg = update_response.text if update_response.text else f"HTTP {update_response.status_code}"
-                              print(f"⚠️  Could not update schema ({error_msg}), keeping existing table")
-                              iceberg_results.append({
-                                  'file': file_path,
-                                  'contract': contract_name,
-                                  'status': 'EXISTS',
-                                  'table_name': result.get('table_name'),
-                                  'error': error_msg
-                              })
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UPDATED',
+                              'table_name': table_name_result,
+                              'changes': change_summary,
+                              'change_details': change_details
+                          })
+                      elif status_value == 'unchanged':
+                          print(f"✔️  No schema changes: {result.get('table_name')}")
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UNCHANGED',
+                              'table_name': result.get('table_name')
+                          })
+                      elif status_value == 'exists' and not is_new:
+                          print(f"⏭️  Table unchanged: {result.get('table_name')}")
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UNCHANGED',
+                              'table_name': result.get('table_name')
+                          })
                       else:
                           print(f"❌ Unexpected response: {result}")
                           all_passed = False
@@ -294,13 +284,14 @@ jobs:
                               'error': 'Unexpected response'
                           })
                   else:
-                      print(f"❌ Iceberg service returned {create_response.status_code}")
+                      error_msg = response.text if response.text else f"HTTP {response.status_code}"
+                      print(f"❌ Iceberg service returned {response.status_code}: {error_msg}")
                       all_passed = False
                       iceberg_results.append({
                           'file': file_path,
                           'contract': contract_name,
                           'status': 'FAILED',
-                          'error': f'HTTP {create_response.status_code}'
+                          'error': error_msg
                       })
 
               except requests.exceptions.ConnectionError:
@@ -338,7 +329,7 @@ jobs:
               }, f)
 
           # Only fail if there are actual errors, not skipped files or existing tables
-          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'SKIPPED'] for r in iceberg_results)
+          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'UNCHANGED', 'SKIPPED'] for r in iceberg_results)
 
           # Also fail if there are any HTTP errors
           has_http_errors = any('HTTP' in str(r.get('error', '')) or 'http' in str(r.get('error', '')).lower() for r in iceberg_results)
@@ -365,12 +356,12 @@ jobs:
               comment += '### ✅ Schema Validation\n';
               comment += valResults.all_passed ? '**All contracts validated!**\n\n' : '**Validation failed**\n\n';
 
-              comment += '| File | Status | Notes |\n';
-              comment += '|------|--------|-------|\n';
+              comment += '| File | Status | Action |\n';
+              comment += '|------|--------|--------|\n';
               valResults.results.forEach(r => {
                 const statusIcon = r.status === 'PASSED' ? '✅' : r.status === 'SKIPPED' ? '⚠️' : '❌';
-                const notes = r.reason ? ` - ${r.reason}` : '';
-                comment += `| ${r.file} | ${statusIcon} ${r.status} | ${notes} |\n`;
+                const action = r.action ? r.action : (r.reason ? `${r.reason}` : '');
+                comment += `| ${r.file} | ${statusIcon} ${r.status} | ${action} |\n`;
               });
               comment += '\n';
             } catch (e) {
@@ -393,6 +384,9 @@ jobs:
                 } else if (r.status === 'UPDATED') {
                   statusIcon = '✅';
                   statusText = 'UPDATED';
+                } else if (r.status === 'UNCHANGED') {
+                  statusIcon = '✔️';
+                  statusText = 'UNCHANGED';
                 } else if (r.status === 'EXISTS') {
                   statusIcon = '⚠️';
                   statusText = 'EXISTS';
@@ -505,8 +499,8 @@ jobs:
             // Build approval request comment
             let approvalComment = '## ✅ Ready for Merge\n\n';
             approvalComment += 'All validations and table creations passed successfully!\n\n';
-            approvalComment += '**To merge this PR, please comment:**\n';
-            approvalComment += '```\n@github-actions approve-merge\n```\n\n';
+            approvalComment += '**To merge this PR, reply with:**\n';
+            approvalComment += '```\n/approve-merge\n```\n\n';
             approvalComment += 'This will automatically merge the PR with all changes.\n';
 
             await github.rest.issues.createComment({
@@ -516,96 +510,7 @@ jobs:
               body: approvalComment
             });
 
-            console.log('✅ Approval request comment posted');
-
-      - name: Listen for approval and merge
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-
-            // Wait for approval comment (with timeout)
-            const maxWaitTime = 24 * 60 * 60 * 1000; // 24 hours
-            const startTime = Date.now();
-            const pollInterval = 30000; // Check every 30 seconds
-
-            let approved = false;
-            let checkCount = 0;
-            const maxChecks = (maxWaitTime / pollInterval);
-
-            while (!approved && checkCount < maxChecks) {
-              await new Promise(resolve => setTimeout(resolve, pollInterval));
-              checkCount++;
-
-              try {
-                const comments = await github.rest.issues.listComments({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number
-                });
-
-                // Check for approval comment (by any user with write access)
-                approved = comments.data.some(comment =>
-                  comment.body.includes('@github-actions approve-merge') ||
-                  comment.body.includes('approve-merge')
-                );
-
-                if (approved) {
-                  console.log('✅ Approval found! Proceeding with merge...');
-                  break;
-                }
-
-                if (checkCount % 4 === 0) { // Log every 2 minutes
-                  console.log(`⏳ Waiting for approval... (${Math.floor((Date.now() - startTime) / 1000)}s elapsed)`);
-                }
-              } catch (error) {
-                console.log('Error checking for approval:', error);
-              }
-            }
-
-            if (!approved) {
-              console.log('⏱️  Approval timeout - PR was not merged');
-              core.setFailed('PR approval timeout after 24 hours');
-              process.exit(1);
-            }
-
-            // Proceed with merge
-            const { data: pullRequest } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
-
-            if (pullRequest.state === 'open') {
-              try {
-                await github.rest.pulls.merge({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: context.issue.number,
-                  merge_method: 'squash',
-                  commit_title: `✅ Merge approved contracts: ${pullRequest.title}`,
-                  commit_message: `Contracts validated and Iceberg tables created.\n\nPR: #${context.issue.number}\n\n- Schema validation passed\n- Iceberg tables created/updated successfully\n- Approved by: human review`
-                });
-
-                console.log('✅ PR merged successfully');
-
-                // Post success comment
-                await github.rest.issues.createComment({
-                  issue_number: context.issue.number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: '## 🎉 Merge Complete\n\nPR has been successfully merged and all changes are now in production!'
-                });
-              } catch (error) {
-                if (error.message.includes('Pull Request is not mergeable')) {
-                  console.log('⚠️  PR is not mergeable');
-                  core.setFailed('PR is not mergeable - check for conflicts or branch protection rules');
-                } else {
-                  throw error;
-                }
-              }
-            }
+            console.log('✅ Approval request comment posted - waiting for /approve-merge command');
 
       - name: Report validation failure
         if: failure()

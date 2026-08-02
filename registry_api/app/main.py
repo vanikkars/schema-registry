@@ -5,8 +5,15 @@ and mounts routers. This is the entry point (registry_api.app.main:app).
 """
 
 import json
+import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 from registry_api.adapters.inbound.http.router import create_router
 from registry_api.adapters.outbound.aws_glue.schema_registry_adapter import (

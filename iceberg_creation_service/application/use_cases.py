@@ -159,6 +159,30 @@ class UpdateTableSchemaUseCase:
                 if col.name in old_col_names and old_col_names[col.name].data_type != col.data_type
             ]
 
+            # Check if there are any changes
+            has_changes = len(added) > 0 or len(removed) > 0 or len(modified) > 0
+
+            if not has_changes:
+                logger.info(f"No schema changes detected for {table_name}")
+                return {
+                    "status": "unchanged",
+                    "table_name": table_name,
+                    "database_name": table.database_name,
+                    "message": f"No schema changes detected for '{table_name}'",
+                    "old_version": table.version,
+                    "new_version": contract["version"],
+                    "change_summary": {
+                        "added": 0,
+                        "removed": 0,
+                        "modified": 0,
+                    },
+                    "change_details": {
+                        "added_columns": [],
+                        "removed_columns": [],
+                        "modified_columns": [],
+                    },
+                }
+
             # Create change object
             changes = SchemaChange(
                 added_columns=added,

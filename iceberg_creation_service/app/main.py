@@ -67,16 +67,85 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/tables", status_code=status.HTTP_201_CREATED)
     async def create_table(contract: dict) -> dict:
-        """Create an Iceberg table from a data contract."""
+        """Create a new Iceberg table from a data contract.
+
+        Returns 201 Created if table is new.
+        Returns 409 Conflict if table already exists (use PUT to update).
+        """
         try:
-            logger.info(f"API: Creating table for {contract.get('name')}")
+            logger.info(f"POST: Creating table for {contract.get('name')}")
             result = await create_table_use_case.execute(contract)
+
+            if result.get("status") == "exists":
+                logger.warning(f"Table {result.get('table_name')} already exists, use PUT to update")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Table {result.get('table_name')} already exists. Use PUT to update."
+                )
+
             return {"data": result}
         except InvalidTableError as e:
             logger.error(f"Validation error: {str(e)}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except TableCreationError as e:
             logger.error(f"Creation error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+
+    @app.put("/api/v1/tables/{table_name}", status_code=status.HTTP_200_OK)
+    async def upsert_table(table_name: str, contract: dict) -> dict:
+        """Create or update an Iceberg table from a data contract.
+
+        Returns 201 Created if table is new, 200 OK if updated.
+        """
+        table_name_from_contract = contract.get("contract_id", "").replace("-", "_").lower()
+        if table_name_from_contract != table_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Table name mismatch: URL has '{table_name}' but contract has '{table_name_from_contract}'"
+            )
+
+        try:
+            logger.info(f"PUT: Creating/updating table {table_name}")
+
+            # First try to create
+            result = await create_table_use_case.execute(contract)
+
+            if result.get("status") == "exists":
+                # Table exists, update it
+                logger.info(f"Table exists, attempting to update schema for {table_name}")
+                result = await update_table_use_case.execute(table_name, contract)
+
+                if result.get("status") == "updated":
+                    summary = result.get("change_summary", {})
+                    logger.info(f"✏️  Schema updated for {table_name}")
+                    logger.info(f"  - Added: {summary.get('added', 0)}, Removed: {summary.get('removed', 0)}, Modified: {summary.get('modified', 0)}")
+                    logger.info(f"  - Version: {result.get('old_version')} → {result.get('new_version')}")
+
+                return {"data": result}
+            else:
+                logger.info(f"✅ Table created: {table_name}")
+                return {"data": result}
+
+        except HTTPException:
+            raise
+        except InvalidTableError as e:
+            logger.error(f"Validation error: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except TableNotFoundError as e:
+            logger.error(f"Table not found: {str(e)}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except TableCreationError as e:
+            logger.error(f"Error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
             )

@@ -3,6 +3,7 @@
 import os
 import boto3
 import logging
+import time
 from registry_api.application.ports import SchemaRegistryPort
 from registry_api.domain.models import DataContract
 from registry_api.domain.exceptions import RegistryNotFoundError
@@ -35,14 +36,15 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
         self,
         contract: DataContract,
         data_format: str = "AVRO",
-        compatibility: str = "BACKWARD",
+        compatibility: str = "FORWARD_ALL",
     ) -> str:
         """Register a data contract as a schema in the registry.
 
         Args:
             contract: The data contract to register
             data_format: Schema format (AVRO, PROTOBUF, JSON)
-            compatibility: Compatibility mode (BACKWARD, FORWARD, BOTH, NONE, DISABLED)
+            compatibility: Compatibility mode (BACKWARD, FORWARD, BOTH, FORWARD_ALL, DISABLED)
+                Default: FORWARD_ALL - allows adding new fields but not removing/modifying existing ones
 
         Returns:
             Schema ARN
@@ -109,7 +111,7 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 # Only register new version if definition is different
                 logger.info(f"Current schema def length: {len(current_schema_def)}, New schema def length: {len(schema_definition)}")
                 if current_schema_def != schema_definition:
-                    logger.info(f"Schema definition changed for {schema_name}, registering new version")
+                    logger.info(f"📝 Schema definition CHANGED for {schema_name}, attempting to register new version")
                     try:
                         version_result = self.glue.register_schema_version(
                             SchemaId={
@@ -118,17 +120,48 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                             },
                             SchemaDefinition=schema_definition,
                         )
-                        logger.info(f"Registered new version {version_result.get('VersionNumber')} for schema {schema_name}")
+                        version_number = version_result.get('VersionNumber')
+                        version_status = version_result.get('Status', 'AVAILABLE')
+
+                        logger.info(f"Registered new version {version_number} for schema {schema_name}, status: {version_status}")
+
+                        # If status is PENDING, wait for validation to complete
+                        error_details = None
+                        if version_status == 'PENDING':
+                            logger.info(f"⏳ Waiting for schema validation to complete for version {version_number}...")
+                            final_status, error_details = self._wait_for_version_validation(schema_name, version_number)
+                            logger.info(f"Schema validation completed with status: {final_status}")
+                            version_status = final_status
+
+                        # Check if version was marked as FAILED due to compatibility
+                        if version_status == 'FAILURE':
+                            # Build detailed error message by comparing schemas
+                            detailed_msg = self._analyze_schema_diff(current_schema_def, schema_definition, compatibility)
+                            error_msg = f"Version {version_number} marked as FAILURE by Glue (compatibility violation)"
+                            error_msg += f"\n{detailed_msg}"
+
+                            if error_details:
+                                # AWS Glue provides details about what violated compatibility
+                                detail_msg = error_details.get('ErrorMessage', 'No details available')
+                                detail_type = error_details.get('ErrorCode', 'UNKNOWN')
+                                logger.error(f"❌ Schema registration FAILED due to compatibility violation for {schema_name}")
+                                logger.error(f"AWS Glue Error ({detail_type}): {detail_msg}")
+                            else:
+                                logger.error(f"❌ Schema registration FAILED due to compatibility violation for {schema_name}")
+
+                            raise ValueError(f"Schema change violates {compatibility} compatibility:\n{error_msg}")
+
                     except self.glue.exceptions.InvalidInputException as e:
                         # Compatibility check failed
                         error_msg = str(e)
-                        logger.error(f"Schema registration failed due to compatibility violation: {error_msg}")
+                        logger.error(f"❌ Schema registration FAILED due to compatibility violation for {schema_name}")
+                        logger.error(f"Error details: {error_msg}")
                         raise ValueError(f"Schema change violates {compatibility} compatibility: {error_msg}")
                     except Exception as e:
-                        logger.error(f"Failed to register new schema version: {str(e)}")
+                        logger.error(f"Failed to register new schema version: {str(e)}", exc_info=True)
                         raise
                 else:
-                    logger.info(f"Schema definition unchanged for {schema_name}, not registering new version")
+                    logger.info(f"📋 Schema definition UNCHANGED for {schema_name}, not registering new version")
 
                 # Update schema tags (metadata)
                 schema_arn = existing.get("SchemaArn", "")
@@ -148,10 +181,11 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 )
             except ValueError as e:
                 # Re-raise ValueError (compatibility violations) without swallowing
+                logger.error(f"❌ ValueError caught - re-raising compatibility violation: {str(e)}")
                 raise e
             except Exception as e:
                 # Error occurred, return existing schema (for non-critical errors)
-                logger.warning(f"Error while processing schema {schema_name}: {str(e)}")
+                logger.warning(f"Error while processing schema {schema_name}: {str(e)}", exc_info=True)
                 response = existing
         except self.glue.exceptions.EntityNotFoundException:
             # Create new schema
@@ -165,7 +199,123 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 Tags=tags,
             )
 
-        return response.get("SchemaArn", "")
+        schema_arn = response.get("SchemaArn", "")
+        logger.info(f"✅ Successfully registered schema {schema_name} with ARN: {schema_arn}")
+        return schema_arn
+
+    def _analyze_schema_diff(self, old_schema_def: str, new_schema_def: str, compatibility: str) -> str:
+        """Analyze differences between old and new schema to identify compatibility violations.
+
+        Args:
+            old_schema_def: Previous schema definition as JSON string
+            new_schema_def: New schema definition as JSON string
+            compatibility: Compatibility mode (e.g., FORWARD_ALL)
+
+        Returns:
+            Human-readable description of schema changes
+        """
+        import json
+
+        try:
+            old_schema = json.loads(old_schema_def)
+            new_schema = json.loads(new_schema_def)
+
+            old_fields = {f["name"]: f for f in old_schema.get("fields", [])}
+            new_fields = {f["name"]: f for f in new_schema.get("fields", [])}
+
+            changes = []
+
+            # Check for removed fields
+            removed = set(old_fields.keys()) - set(new_fields.keys())
+            if removed:
+                changes.append(f"❌ Removed fields (not allowed in {compatibility}): {', '.join(sorted(removed))}")
+
+            # Check for modified field types
+            modified = []
+            for field_name in old_fields.keys() & new_fields.keys():
+                old_type = old_fields[field_name].get("type")
+                new_type = new_fields[field_name].get("type")
+                if old_type != new_type:
+                    modified.append(f"{field_name}: {old_type} → {new_type}")
+            if modified:
+                changes.append(f"❌ Modified field types (not allowed in {compatibility}): {', '.join(modified)}")
+
+            # Check for newly added required fields (fields without null in union)
+            added_required = []
+            for field_name in set(new_fields.keys()) - set(old_fields.keys()):
+                field_type = new_fields[field_name].get("type")
+                # Check if it's not a union with null (required field)
+                if not (isinstance(field_type, list) and "null" in field_type):
+                    default = new_fields[field_name].get("default")
+                    if default is None:
+                        added_required.append(field_name)
+            if added_required:
+                changes.append(f"⚠️  Added required fields without defaults (not allowed in {compatibility}): {', '.join(added_required)}")
+
+            # Check for allowed changes (optional fields added)
+            added_optional = []
+            for field_name in set(new_fields.keys()) - set(old_fields.keys()):
+                field_type = new_fields[field_name].get("type")
+                # Check if it's a union with null (optional field)
+                if isinstance(field_type, list) and "null" in field_type:
+                    added_optional.append(field_name)
+            if added_optional:
+                changes.append(f"✅ Added optional fields (allowed): {', '.join(added_optional)}")
+
+            if not changes:
+                return "Unknown schema difference"
+
+            return "\n".join(changes)
+
+        except Exception as e:
+            logger.warning(f"Could not analyze schema diff: {str(e)}")
+            return "Could not determine specific schema changes"
+
+    def _wait_for_version_validation(self, schema_name: str, version_number: int, timeout: int = 60) -> tuple:
+        """Wait for AWS Glue to complete schema version validation.
+
+        Args:
+            schema_name: Name of the schema
+            version_number: Version number to wait for
+            timeout: Maximum seconds to wait (default 60)
+
+        Returns:
+            Tuple of (status, error_details) where error_details is None if status is AVAILABLE
+        """
+        start_time = time.time()
+        poll_interval = 1  # Check every second
+
+        while time.time() - start_time < timeout:
+            try:
+                version_resp = self.glue.get_schema_version(
+                    SchemaId={
+                        "RegistryName": self.registry_name,
+                        "SchemaName": schema_name,
+                    },
+                    SchemaVersionNumber={"VersionNumber": version_number},
+                )
+                status = version_resp.get('Status', 'PENDING')
+                error_details = version_resp.get('VersionFailureDetails')
+
+                if status != 'PENDING':
+                    if error_details:
+                        logger.info(f"Version {version_number} validation completed with status: {status}")
+                        logger.error(f"Compatibility error details: {error_details}")
+                    else:
+                        logger.info(f"Version {version_number} validation completed with status: {status}")
+                    return status, error_details
+
+                logger.debug(f"Version {version_number} still PENDING, waiting...")
+                time.sleep(poll_interval)
+
+            except Exception as e:
+                logger.error(f"Error checking version status: {str(e)}", exc_info=True)
+                raise
+
+        # Timeout reached
+        error_msg = f"Schema version validation timed out after {timeout} seconds"
+        logger.error(f"❌ {error_msg}")
+        raise TimeoutError(error_msg)
 
     def get_schema(self, schema_name: str) -> dict:
         """Get details of a schema by name.
@@ -343,7 +493,7 @@ class GlueSchemaRegistryAdapter(SchemaRegistryPort):
                 "arn": schema_response.get("SchemaArn"),
                 "description": schema_response.get("Description", ""),
                 "data_format": schema_response.get("DataFormat", "AVRO"),
-                "compatibility": schema_response.get("Compatibility", "BACKWARD"),
+                "compatibility": schema_response.get("Compatibility", "FORWARD_ALL"),
                 "metadata": metadata,
                 "schema": schema_content,
             }

@@ -32,8 +32,6 @@ def build_schema_response(schema_info: dict, contract: dict) -> dict:
             for col in contract.get("columns", [])
         ],
         "metadata": contract.get("metadata", {}),
-        "created_at": schema_info.get("created_at", ""),
-        "updated_at": schema_info.get("updated_at", ""),
     }
 
 

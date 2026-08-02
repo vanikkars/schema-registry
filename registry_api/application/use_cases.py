@@ -71,12 +71,6 @@ class RegisterSchemaUseCase:
                 "metadata": contract.metadata.model_dump()
                 if contract.metadata
                 else {},
-                "created_at": str(schema_details.get("CreatedTime", ""))
-                if schema_details
-                else "",
-                "updated_at": str(schema_details.get("UpdatedTime", ""))
-                if schema_details
-                else "",
             },
         }
 

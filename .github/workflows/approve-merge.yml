@@ -34,6 +34,7 @@ jobs:
             }
 
       - name: Check if user has permission
+        id: check-permission
         if: steps.check-approval.outputs.approved == 'true'
         uses: actions/github-script@v7
         with:
@@ -69,14 +70,15 @@ jobs:
                 repo: context.repo.repo,
                 body: `❌ @${commenter} you don't have permission to approve this PR. Only PR author, maintainers, or admins can approve.`
               });
-              core.setFailed('Commenter does not have permission');
+              core.setOutput('has_permission', 'false');
               return;
             }
 
             console.log(`✅ ${commenter} has permission to approve`);
+            core.setOutput('has_permission', 'true');
 
       - name: Merge PR
-        if: steps.check-approval.outputs.approved == 'true'
+        if: steps.check-approval.outputs.approved == 'true' && steps.check-permission.outputs.has_permission == 'true'
         uses: actions/github-script@v7
         with:
           script: |

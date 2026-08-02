@@ -199,20 +199,21 @@ jobs:
                   contract_name = contract.get('name')
                   contract_id = contract.get('contract_id', '')
                   table_name = contract_id.replace('-', '_').lower()
-                  print(f"📤 Calling Iceberg service for {contract_name} (table: {table_name})...")
+                  print(f"📤 Registering Iceberg table for {contract_name} (table: {table_name})...")
 
-                  # Try to create table
-                  create_response = requests.post(
-                      f"{iceberg_url}/api/v1/tables",
+                  # Use PUT for idempotent create/update
+                  response = requests.put(
+                      f"{iceberg_url}/api/v1/tables/{table_name}",
                       json=contract,
                       timeout=30
                   )
 
-                  if create_response.status_code == 201:
-                      result = create_response.json().get('data', {})
+                  if response.status_code in [200, 201]:
+                      result = response.json().get('data', {})
                       status_value = result.get('status')
+                      is_new = response.status_code == 201
 
-                      if status_value == 'created':
+                      if status_value == 'created' or is_new:
                           print(f"✅ Table created: {result.get('table_name')}")
                           iceberg_results.append({
                               'file': file_path,
@@ -220,74 +221,45 @@ jobs:
                               'status': 'CREATED',
                               'table_name': result.get('table_name')
                           })
-                      elif status_value == 'exists':
-                          print(f"⚠️  Table exists: {result.get('table_name')}, attempting schema update...")
-                          # Table exists, try to update its schema
-                          update_response = requests.post(
-                              f"{iceberg_url}/api/v1/tables/{table_name}/schema",
-                              json=contract,
-                              timeout=30
-                          )
+                      elif status_value == 'updated' or (status_value == 'exists' and not is_new):
+                          print(f"✅ Table updated: {result.get('table_name')}")
+                          table_name_result = result.get('table_name')
+                          change_summary = result.get('change_summary', {})
+                          change_details = result.get('change_details', {})
+                          old_version = result.get('old_version')
+                          new_version = result.get('new_version')
 
-                          if update_response.status_code == 200:
-                              update_result = update_response.json().get('data', {})
-                              if update_result.get('status') == 'updated':
-                                  table_name_result = result.get('table_name')
-                                  change_summary = update_result.get('change_summary', {})
-                                  change_details = update_result.get('change_details', {})
-                                  old_version = update_result.get('old_version')
-                                  new_version = update_result.get('new_version')
+                          print(f"   Version: {old_version} → {new_version}")
 
-                                  print(f"✅ Table schema updated: {table_name_result}")
-                                  print(f"   Version: {old_version} → {new_version}")
+                          # Print summary
+                          added_count = change_summary.get('added', 0)
+                          removed_count = change_summary.get('removed', 0)
+                          modified_count = change_summary.get('modified', 0)
 
-                                  # Print summary
-                                  added_count = change_summary.get('added', 0)
-                                  removed_count = change_summary.get('removed', 0)
-                                  modified_count = change_summary.get('modified', 0)
+                          if added_count > 0 or removed_count > 0 or modified_count > 0:
+                              print(f"   Changes: +{added_count} -{removed_count} ~{modified_count}")
 
-                                  if added_count > 0 or removed_count > 0 or modified_count > 0:
-                                      print(f"   Changes: +{added_count} -{removed_count} ~{modified_count}")
+                              # Print detailed changes
+                              for col in change_details.get('added_columns', []):
+                                  desc = f" - {col['description']}" if col['description'] else ""
+                                  print(f"     ➕ {col['name']}: {col['type']}{desc}")
 
-                                      # Print detailed changes
-                                      for col in change_details.get('added_columns', []):
-                                          desc = f" - {col['description']}" if col['description'] else ""
-                                          print(f"     ➕ {col['name']}: {col['type']}{desc}")
+                              for col in change_details.get('removed_columns', []):
+                                  print(f"     ➖ {col['name']}: {col['type']}")
 
-                                      for col in change_details.get('removed_columns', []):
-                                          print(f"     ➖ {col['name']}: {col['type']}")
-
-                                      for col in change_details.get('modified_columns', []):
-                                          print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
-                                  else:
-                                      print(f"   No schema changes detected")
-
-                                  iceberg_results.append({
-                                      'file': file_path,
-                                      'contract': contract_name,
-                                      'status': 'UPDATED',
-                                      'table_name': table_name_result,
-                                      'changes': change_summary,
-                                      'change_details': change_details
-                                  })
-                              else:
-                                  print(f"⚠️  Schema unchanged or no updates needed: {result.get('table_name')}")
-                                  iceberg_results.append({
-                                      'file': file_path,
-                                      'contract': contract_name,
-                                      'status': 'EXISTS',
-                                      'table_name': result.get('table_name')
-                                  })
+                              for col in change_details.get('modified_columns', []):
+                                  print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
                           else:
-                              error_msg = update_response.text if update_response.text else f"HTTP {update_response.status_code}"
-                              print(f"⚠️  Could not update schema ({error_msg}), keeping existing table")
-                              iceberg_results.append({
-                                  'file': file_path,
-                                  'contract': contract_name,
-                                  'status': 'EXISTS',
-                                  'table_name': result.get('table_name'),
-                                  'error': error_msg
-                              })
+                              print(f"   No schema changes detected")
+
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UPDATED',
+                              'table_name': table_name_result,
+                              'changes': change_summary,
+                              'change_details': change_details
+                          })
                       else:
                           print(f"❌ Unexpected response: {result}")
                           all_passed = False
@@ -298,13 +270,14 @@ jobs:
                               'error': 'Unexpected response'
                           })
                   else:
-                      print(f"❌ Iceberg service returned {create_response.status_code}")
+                      error_msg = response.text if response.text else f"HTTP {response.status_code}"
+                      print(f"❌ Iceberg service returned {response.status_code}: {error_msg}")
                       all_passed = False
                       iceberg_results.append({
                           'file': file_path,
                           'contract': contract_name,
                           'status': 'FAILED',
-                          'error': f'HTTP {create_response.status_code}'
+                          'error': error_msg
                       })
 
               except requests.exceptions.ConnectionError:

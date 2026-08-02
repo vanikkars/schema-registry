@@ -88,9 +88,9 @@ class CreateTableUseCase:
 
             # Create table using contract_id as table name (consistent with registry_api)
             table = IcebergTable(
-                table_name=contract.get("contract_id", "").replace("-", "_").lower(),
-                contract_id=contract.get("contract_id"),
-                version=contract.get("version", 1),
+                table_name=contract["contract_id"].replace("-", "_").lower(),
+                contract_id=contract["contract_id"],
+                version=contract["version"],
                 columns=columns,
                 database_name=contract.get("database_name", "iceberg_tables"),
                 description=contract.get("description"),
@@ -168,7 +168,7 @@ class UpdateTableSchemaUseCase:
 
             # Update table
             table.columns = new_columns
-            table.version = contract.get("version", table.version)
+            table.version = contract["version"]
             await self.repository.update(table)
 
             logger.info(f"Table schema updated: {table_name}")

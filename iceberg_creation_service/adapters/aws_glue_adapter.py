@@ -85,10 +85,14 @@ class AwsGlueIcebergAdapter:
             params = table_data.get("Parameters", {})
 
             logger.debug(f"Successfully retrieved table {table_name} with {len(columns)} columns")
+            version = params.get("iceberg_table_version")
+            if not version:
+                raise ValueError(f"Missing required parameter 'iceberg_table_version' for table {table_name}")
+
             return IcebergTable(
                 table_name=table_name,
                 contract_id=params.get("contract_id", table_name),
-                version=int(params.get("iceberg_table_version", 1)),
+                version=version,
                 columns=columns,
                 database_name=database_name,
                 description=table_data.get("Description"),

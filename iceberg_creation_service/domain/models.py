@@ -61,7 +61,7 @@ class IcebergTable:
     """Iceberg table domain model."""
     table_name: str
     contract_id: str
-    version: int
+    version: str
     columns: List[Column]
     database_name: str = "iceberg_tables"
     description: Optional[str] = None

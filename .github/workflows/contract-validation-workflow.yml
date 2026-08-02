@@ -186,31 +186,70 @@ jobs:
               if not file_path.endswith('.json'):
                   continue
 
-              print(f"\n📊 Creating Iceberg table: {file_path}")
+              print(f"\n📊 Processing Iceberg table: {file_path}")
 
               try:
                   with open(file_path, 'r') as f:
                       contract = json.load(f)
 
                   contract_name = contract.get('name')
+                  table_name = contract.get('contract_id', '').replace('-', '_').lower()
                   print(f"📤 Calling Iceberg service for {contract_name}...")
 
-                  response = requests.post(
+                  # Try to create table
+                  create_response = requests.post(
                       f"{iceberg_url}/api/v1/tables",
                       json=contract,
                       timeout=30
                   )
 
-                  if response.status_code == 201:
-                      result = response.json().get('data', {})
-                      if result.get('status') in ['created', 'exists']:
-                          print(f"✅ Table {result.get('status')}: {result.get('table_name')}")
+                  if create_response.status_code == 201:
+                      result = create_response.json().get('data', {})
+                      status_value = result.get('status')
+
+                      if status_value == 'created':
+                          print(f"✅ Table created: {result.get('table_name')}")
                           iceberg_results.append({
                               'file': file_path,
                               'contract': contract_name,
-                              'status': result.get('status').upper(),
+                              'status': 'CREATED',
                               'table_name': result.get('table_name')
                           })
+                      elif status_value == 'exists':
+                          print(f"⚠️  Table exists: {result.get('table_name')}, attempting schema update...")
+                          # Table exists, try to update its schema
+                          update_response = requests.post(
+                              f"{iceberg_url}/api/v1/tables/{table_name}/schema",
+                              json=contract,
+                              timeout=30
+                          )
+
+                          if update_response.status_code == 200:
+                              update_result = update_response.json().get('data', {})
+                              if update_result.get('status') == 'updated':
+                                  print(f"✅ Table schema updated: {result.get('table_name')}")
+                                  iceberg_results.append({
+                                      'file': file_path,
+                                      'contract': contract_name,
+                                      'status': 'UPDATED',
+                                      'table_name': result.get('table_name')
+                                  })
+                              else:
+                                  print(f"⚠️  Schema unchanged or no updates needed: {result.get('table_name')}")
+                                  iceberg_results.append({
+                                      'file': file_path,
+                                      'contract': contract_name,
+                                      'status': 'EXISTS',
+                                      'table_name': result.get('table_name')
+                                  })
+                          else:
+                              print(f"⚠️  Could not update schema (HTTP {update_response.status_code}), keeping existing table")
+                              iceberg_results.append({
+                                  'file': file_path,
+                                  'contract': contract_name,
+                                  'status': 'EXISTS',
+                                  'table_name': result.get('table_name')
+                              })
                       else:
                           print(f"❌ Unexpected response: {result}")
                           all_passed = False
@@ -221,13 +260,13 @@ jobs:
                               'error': 'Unexpected response'
                           })
                   else:
-                      print(f"❌ Iceberg service returned {response.status_code}")
+                      print(f"❌ Iceberg service returned {create_response.status_code}")
                       all_passed = False
                       iceberg_results.append({
                           'file': file_path,
                           'contract': contract_name,
                           'status': 'FAILED',
-                          'error': f'HTTP {response.status_code}'
+                          'error': f'HTTP {create_response.status_code}'
                       })
 
               except requests.exceptions.ConnectionError:
@@ -264,8 +303,8 @@ jobs:
                   'results': iceberg_results
               }, f)
 
-          # Only fail if there are actual errors, not skipped files
-          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'SKIPPED'] for r in iceberg_results)
+          # Only fail if there are actual errors, not skipped files or existing tables
+          has_errors = any(r['status'] not in ['CREATED', 'EXISTS', 'UPDATED', 'SKIPPED'] for r in iceberg_results)
           sys.exit(0 if not has_errors else 1)
           EOF
 
@@ -309,6 +348,9 @@ jobs:
                 if (r.status === 'CREATED') {
                   statusIcon = '✅';
                   statusText = 'CREATED';
+                } else if (r.status === 'UPDATED') {
+                  statusIcon = '✅';
+                  statusText = 'UPDATED';
                 } else if (r.status === 'EXISTS') {
                   statusIcon = '⚠️';
                   statusText = 'EXISTS';

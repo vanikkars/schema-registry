@@ -172,13 +172,38 @@ class UpdateTableSchemaUseCase:
             await self.repository.update(table)
 
             logger.info(f"Table schema updated: {table_name}")
+
+            # Build detailed change summary
+            change_details = {
+                "added_columns": [
+                    {"name": col.name, "type": col.data_type.value, "description": col.description}
+                    for col in added
+                ],
+                "removed_columns": [
+                    {"name": col.name, "type": col.data_type.value, "description": col.description}
+                    for col in removed
+                ],
+                "modified_columns": [
+                    {"name": old.name, "old_type": old.data_type.value, "new_type": new.data_type.value}
+                    for old, new in modified
+                ],
+            }
+
             return {
                 "status": "updated",
                 "table_name": table_name,
                 "database_name": table.database_name,
                 "message": f"Table schema updated for '{table_name}'",
+                "old_version": table.version,
+                "new_version": contract["version"],
+                "change_summary": {
+                    "added": len(added),
+                    "removed": len(removed),
+                    "modified": len(modified),
+                },
                 "changes": changes.get_changes(),
                 "warnings": changes.get_warnings(),
+                "change_details": change_details,
             }
 
         except (TableNotFoundError, InvalidTableError) as e:

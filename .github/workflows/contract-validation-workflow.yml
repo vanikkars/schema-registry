@@ -228,12 +228,43 @@ jobs:
                           if update_response.status_code == 200:
                               update_result = update_response.json().get('data', {})
                               if update_result.get('status') == 'updated':
-                                  print(f"✅ Table schema updated: {result.get('table_name')}")
+                                  table_name_result = result.get('table_name')
+                                  change_summary = update_result.get('change_summary', {})
+                                  change_details = update_result.get('change_details', {})
+                                  old_version = update_result.get('old_version')
+                                  new_version = update_result.get('new_version')
+
+                                  print(f"✅ Table schema updated: {table_name_result}")
+                                  print(f"   Version: {old_version} → {new_version}")
+
+                                  # Print summary
+                                  added_count = change_summary.get('added', 0)
+                                  removed_count = change_summary.get('removed', 0)
+                                  modified_count = change_summary.get('modified', 0)
+
+                                  if added_count > 0 or removed_count > 0 or modified_count > 0:
+                                      print(f"   Changes: +{added_count} -{removed_count} ~{modified_count}")
+
+                                      # Print detailed changes
+                                      for col in change_details.get('added_columns', []):
+                                          desc = f" - {col['description']}" if col['description'] else ""
+                                          print(f"     ➕ {col['name']}: {col['type']}{desc}")
+
+                                      for col in change_details.get('removed_columns', []):
+                                          print(f"     ➖ {col['name']}: {col['type']}")
+
+                                      for col in change_details.get('modified_columns', []):
+                                          print(f"     ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
+                                  else:
+                                      print(f"   No schema changes detected")
+
                                   iceberg_results.append({
                                       'file': file_path,
                                       'contract': contract_name,
                                       'status': 'UPDATED',
-                                      'table_name': result.get('table_name')
+                                      'table_name': table_name_result,
+                                      'changes': change_summary,
+                                      'change_details': change_details
                                   })
                               else:
                                   print(f"⚠️  Schema unchanged or no updates needed: {result.get('table_name')}")
@@ -352,8 +383,8 @@ jobs:
               comment += '### 🗄️ Iceberg Table Creation\n';
               comment += icebergResults.all_passed ? '**All tables created successfully!**\n\n' : '**Table creation failed**\n\n';
 
-              comment += '| Contract | Table | Status | Notes |\n';
-              comment += '|----------|-------|--------|-------|\n';
+              comment += '| Contract | Table | Status | Details |\n';
+              comment += '|----------|-------|--------|----------|\n';
               icebergResults.results.forEach(r => {
                 let statusIcon, statusText;
                 if (r.status === 'CREATED') {
@@ -372,8 +403,49 @@ jobs:
                   statusIcon = '❌';
                   statusText = r.status;
                 }
-                const notes = r.error ? ` - ${r.error}` : '';
-                comment += `| ${r.contract || 'N/A'} | ${r.table_name || 'N/A'} | ${statusIcon} ${statusText} | ${notes} |\n`;
+
+                let details = r.error ? ` - ${r.error}` : '';
+
+                // Add change summary for UPDATED status
+                if (r.status === 'UPDATED' && r.changes) {
+                  const summary = r.changes;
+                  const changeList = [];
+                  if (summary.added > 0) changeList.push(`+${summary.added}`);
+                  if (summary.removed > 0) changeList.push(`-${summary.removed}`);
+                  if (summary.modified > 0) changeList.push(`~${summary.modified}`);
+                  if (changeList.length > 0) {
+                    details = changeList.join(' ');
+                  }
+                }
+
+                comment += `| ${r.contract || 'N/A'} | ${r.table_name || 'N/A'} | ${statusIcon} ${statusText} | ${details} |\n`;
+
+                // Add detailed change breakdown for UPDATED status
+                if (r.status === 'UPDATED' && r.change_details) {
+                  const changes = r.change_details;
+                  if (changes.added_columns && changes.added_columns.length > 0) {
+                    comment += '| | | | <details><summary>Added columns</summary>\n\n';
+                    changes.added_columns.forEach(col => {
+                      const desc = col.description ? ` - ${col.description}` : '';
+                      comment += `- **${col.name}** (\`${col.type}\`)${desc}\n`;
+                    });
+                    comment += '</details> |\n';
+                  }
+                  if (changes.removed_columns && changes.removed_columns.length > 0) {
+                    comment += '| | | | <details><summary>Removed columns</summary>\n\n';
+                    changes.removed_columns.forEach(col => {
+                      comment += `- **${col.name}** (\`${col.type}\`)\n`;
+                    });
+                    comment += '</details> |\n';
+                  }
+                  if (changes.modified_columns && changes.modified_columns.length > 0) {
+                    comment += '| | | | <details><summary>Modified columns</summary>\n\n';
+                    changes.modified_columns.forEach(col => {
+                      comment += `- **${col.name}**: \`${col.old_type}\` → \`${col.new_type}\`\n`;
+                    });
+                    comment += '</details> |\n';
+                  }
+                }
               });
             } catch (e) {
               console.log('Could not read iceberg results');

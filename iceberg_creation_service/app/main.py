@@ -93,6 +93,25 @@ def create_app() -> FastAPI:
         try:
             logger.info(f"API: Updating table {table_name} with contract {contract.get('contract_id')}")
             result = await update_table_use_case.execute(table_name, contract)
+
+            # Log detailed change information
+            if result.get("status") == "updated":
+                summary = result.get("change_summary", {})
+                logger.info(f"Schema changes for {table_name}:")
+                logger.info(f"  - Added columns: {summary.get('added', 0)}")
+                logger.info(f"  - Removed columns: {summary.get('removed', 0)}")
+                logger.info(f"  - Modified columns: {summary.get('modified', 0)}")
+                logger.info(f"  - Version: {result.get('old_version')} → {result.get('new_version')}")
+
+                # Log detailed changes
+                changes = result.get("change_details", {})
+                for col in changes.get("added_columns", []):
+                    logger.info(f"    ➕ {col['name']}: {col['type']}")
+                for col in changes.get("removed_columns", []):
+                    logger.info(f"    ➖ {col['name']}: {col['type']}")
+                for col in changes.get("modified_columns", []):
+                    logger.info(f"    ✏️  {col['name']}: {col['old_type']} → {col['new_type']}")
+
             return {"data": result}
         except TableNotFoundError as e:
             logger.error(f"Table not found: {str(e)}")

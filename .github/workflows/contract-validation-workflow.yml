@@ -258,6 +258,14 @@ jobs:
                               'changes': change_summary,
                               'change_details': change_details
                           })
+                      elif status_value == 'unchanged':
+                          print(f"✔️  No schema changes: {result.get('table_name')}")
+                          iceberg_results.append({
+                              'file': file_path,
+                              'contract': contract_name,
+                              'status': 'UNCHANGED',
+                              'table_name': result.get('table_name')
+                          })
                       elif status_value == 'exists' and not is_new:
                           print(f"⏭️  Table unchanged: {result.get('table_name')}")
                           iceberg_results.append({

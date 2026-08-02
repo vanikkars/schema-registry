@@ -126,9 +126,10 @@ class UpdateTableSchemaUseCase:
 
         try:
             # Get existing table
-            table = await self.repository.get_by_name(table_name)
+            database_name = contract.get("database_name", "iceberg_tables")
+            table = await self.repository.get_by_name(table_name, database_name)
             if not table:
-                raise TableNotFoundError(f"Table not found: {table_name}")
+                raise TableNotFoundError(f"Table not found: {table_name} in database {database_name}")
 
             # Build new columns
             new_columns = []

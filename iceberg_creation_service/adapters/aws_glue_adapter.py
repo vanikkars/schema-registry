@@ -60,6 +60,7 @@ class AwsGlueIcebergAdapter:
     async def get_by_name(self, table_name: str, database_name: str = "iceberg_tables") -> Optional[IcebergTable]:
         """Get table from Glue and reconstruct as IcebergTable object."""
         try:
+            logger.debug(f"Retrieving table {table_name} from database {database_name}")
             response = self.glue.get_table(DatabaseName=database_name, Name=table_name)
             table_data = response["Table"]
 
@@ -83,6 +84,7 @@ class AwsGlueIcebergAdapter:
             # Extract metadata from table parameters
             params = table_data.get("Parameters", {})
 
+            logger.debug(f"Successfully retrieved table {table_name} with {len(columns)} columns")
             return IcebergTable(
                 table_name=table_name,
                 contract_id=params.get("contract_id", table_name),
@@ -95,9 +97,10 @@ class AwsGlueIcebergAdapter:
                 s3_location=table_data.get("StorageDescriptor", {}).get("Location")
             )
         except self.glue.exceptions.EntityNotFoundException:
+            logger.warning(f"Table not found in Glue: {table_name} in database {database_name}")
             return None
         except Exception as e:
-            logger.error(f"Error retrieving table: {str(e)}")
+            logger.error(f"Error retrieving table {table_name}: {str(e)}", exc_info=True)
             return None
 
     async def exists(self, table_name: str, database_name: str = "iceberg_tables") -> bool:

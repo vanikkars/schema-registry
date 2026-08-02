@@ -45,6 +45,12 @@
       "data_type": "float",
       "nullable": false,
       "description": "The user score"
+    },
+    {
+      "name": "score2",
+      "data_type": "float",
+      "nullable": false,
+      "description": "The user score2"
     }
 
   ],

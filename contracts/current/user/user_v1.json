@@ -2,7 +2,7 @@
   "contract_id": "users-v1",
   "name": "Users",
   "description": "Schema for user records (v2 with profile fields)",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "columns": [
     {
       "name": "user_name",
@@ -33,6 +33,12 @@
       "data_type": "timestamp",
       "nullable": true,
       "description": "Timestamp of last login (added in v2, optional for backwards compatibility)"
+    },
+    {
+      "name": "is_active",
+      "data_type": "boolean",
+      "nullable": false,
+      "description": "Whether the user is active"
     }
   ],
   "metadata": {
